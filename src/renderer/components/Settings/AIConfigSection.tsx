@@ -1,6 +1,6 @@
 /**
  * AI Configuration Section Component
- * 
+ *
  * Allows users to configure AI assistant settings:
  * - Enable/disable AI features
  * - Configure API provider (OpenAI, Anthropic)
@@ -9,8 +9,8 @@
  */
 
 import React, { useState, useEffect } from 'react'
-import { Card, Form, Input, Select, Switch, Button, Alert, Space, Typography, Divider } from 'antd'
-import { RobotOutlined, KeyOutlined, SaveOutlined } from '@ant-design/icons'
+import { Card, Form, Input, Select, Switch, Button, Alert, Space, Typography, Divider, message } from 'antd'
+import { RobotOutlined, KeyOutlined, SaveOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import type { AIConfig } from '../../../shared/types'
 
@@ -23,6 +23,10 @@ export const AIConfigSection: React.FC = () => {
   const [form] = Form.useForm()
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [fetchingModels, setFetchingModels] = useState(false)
+  const [fetchedModels, setFetchedModels] = useState<string[]>([])
+  const [provider, setProvider] = useState<string>('openai')
+  const [testing, setTesting] = useState(false)
 
   // Load saved config from localStorage
   useEffect(() => {
@@ -31,20 +35,79 @@ export const AIConfigSection: React.FC = () => {
       try {
         const config: AIConfig = JSON.parse(savedConfig)
         form.setFieldsValue(config)
+        setProvider(config.provider || 'openai')
       } catch (error) {
         console.error('Failed to load AI config:', error)
       }
     }
   }, [form])
 
+  const handleFetchModels = async () => {
+    try {
+      setFetchingModels(true)
+      const values = await form.validateFields(['provider', 'apiKey', 'baseUrl'])
+
+      const config: AIConfig = {
+        ...values,
+        enabled: true
+      }
+
+      // Update config temporarily to fetch models
+      await window.electronAPI.ai.updateConfig(config)
+
+      const models = await window.electronAPI.ai.fetchModels()
+      if (models && models.length > 0) {
+        setFetchedModels(models)
+        message.success(t('settings.modelsFetched', '成功获取模型列表'))
+      } else {
+        message.warning(t('settings.noModelsFound', '未发现可用模型'))
+      }
+    } catch (error) {
+      console.error('Failed to fetch models:', error)
+      message.error(t('settings.fetchModelsError', '获取模型列表失败，请检查配置'))
+    } finally {
+      setFetchingModels(false)
+    }
+  }
+
+  const handleTestConnection = async () => {
+    try {
+      setTesting(true)
+      const values = await form.validateFields(['provider', 'apiKey', 'baseUrl', 'model'])
+      
+      const config: AIConfig = {
+        ...values,
+        enabled: true
+      }
+
+      // Check if user is using a default model with a custom provider
+      if (config.provider === 'custom' && (config.model === 'gpt-5' || !config.model)) {
+        message.info(t('settings.modelWarning', '提示：检测到您正在使用自定义模型，请确保模型名称已正确填写'), 5)
+      }
+
+      const result = await window.electronAPI.ai.testConnection(config)
+      if (result.success) {
+        message.success(result.message)
+      } else {
+        message.error(result.message)
+      }
+    } catch (error) {
+      console.error('Test connection failed:', error)
+      message.error(t('settings.testConnectionError', '测试连接失败，请检查必填项'))
+    } finally {
+      setTesting(false)
+    }
+  }
+
   const handleSave = async () => {
     try {
       setSaving(true)
       const values = await form.validateFields()
-      
+
       const config: AIConfig = {
         provider: values.provider || 'openai',
         apiKey: values.apiKey,
+        baseUrl: values.baseUrl,
         model: values.model,
         enabled: values.enabled || false
       }
@@ -82,6 +145,12 @@ export const AIConfigSection: React.FC = () => {
         <Space>
           <Button onClick={handleReset}>
             {t('common.reset', '重置')}
+          </Button>
+          <Button
+            onClick={handleTestConnection}
+            loading={testing}
+          >
+            {t('settings.testConnection', '测试连接')}
           </Button>
           <Button
             type="primary"
@@ -138,8 +207,9 @@ export const AIConfigSection: React.FC = () => {
             label={t('settings.aiProvider', 'AI 提供商')}
             tooltip={t('settings.aiProviderTooltip', '选择 AI 服务提供商')}
           >
-            <Select>
+            <Select onChange={(val) => setProvider(val)}>
               <Option value="openai">OpenAI</Option>
+              <Option value="custom">Custom (OpenAI 兼容)</Option>
               <Option value="anthropic" disabled>Anthropic (即将支持)</Option>
               <Option value="local" disabled>本地模型 (即将支持)</Option>
             </Select>
@@ -173,22 +243,61 @@ export const AIConfigSection: React.FC = () => {
             />
           </Form.Item>
 
+          {/* Base URL */}
+          {provider === 'custom' && (
+            <Form.Item
+              name="baseUrl"
+              label={t('settings.baseUrl', 'API 基础 URL')}
+              tooltip={t('settings.baseUrlTooltip', '自定义 API 请求的基础地址 (例如: https://api.openai.com/v1)')}
+              rules={[{ required: true, message: t('settings.baseUrlRequired', '使用自定义提供商时需要配置的基础 URL') }]}
+            >
+              <Input
+                placeholder="https://api.openai.com/v1"
+                allowClear
+              />
+            </Form.Item>
+          )}
+
           {/* Model */}
           <Form.Item
-            name="model"
             label={t('settings.aiModel', 'AI 模型')}
-            tooltip={t('settings.aiModelTooltip', '选择使用的 AI 模型')}
+            tooltip={t('settings.aiModelTooltip', '选择或输入使用的 AI 模型')}
+            required
           >
-            <Select>
-              <Option value="gpt-5">GPT-5 (推荐 - 最强编码能力)</Option>
-              <Option value="gpt-5-mini">GPT-5 Mini (快速且经济)</Option>
-              <Option value="gpt-5-nano">GPT-5 Nano (超快超省)</Option>
-              <Option value="o3">o3 (推理增强 - 复杂问题)</Option>
-              <Option value="o4-mini">o4-mini (推理增强 - 经济版)</Option>
-              <Option value="gpt-4.1">GPT-4.1 (上一代稳定版)</Option>
-            </Select>
+            <Space.Compact style={{ width: '100%' }}>
+              <Form.Item
+                name="model"
+                noStyle
+              >
+                <Select
+                  showSearch
+                  allowClear
+                  style={{ width: '100%' }}
+                  placeholder={t('settings.selectOrInputModel', '选择或输入模型')}
+                >
+                  {fetchedModels.length > 0 ? (
+                    fetchedModels.map(m => <Option key={m} value={m}>{m}</Option>)
+                  ) : (
+                    <>
+                      <Option value="gpt-5">GPT-5 (推荐 - 最强编码能力)</Option>
+                      <Option value="gpt-5-mini">GPT-5 Mini (快速且经济)</Option>
+                      <Option value="gpt-5-nano">GPT-5 Nano (超快超省)</Option>
+                      <Option value="o3">o3 (推理增强 - 复杂问题)</Option>
+                      <Option value="o4-mini">o4-mini (推理增强 - 经济版)</Option>
+                      <Option value="gpt-4.1">GPT-4.1 (上一代稳定版)</Option>
+                    </>
+                  )}
+                </Select>
+              </Form.Item>
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={handleFetchModels}
+                loading={fetchingModels}
+                title={t('settings.fetchModels', '获取模型列表')}
+              />
+            </Space.Compact>
           </Form.Item>
-          
+
           {/* Model Info Alert */}
           <Form.Item>
             <Alert

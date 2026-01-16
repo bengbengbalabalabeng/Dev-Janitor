@@ -60,8 +60,9 @@ export interface Suggestion {
  * AI Assistant configuration
  */
 export interface AIConfig {
-  provider: 'openai' | 'anthropic' | 'local'
+  provider: 'openai' | 'anthropic' | 'local' | 'custom'
   apiKey?: string
+  baseUrl?: string
   model?: string
   enabled: boolean
   language?: 'en-US' | 'zh-CN'
@@ -474,10 +475,120 @@ Please respond in English with clear formatting. Each suggestion should include 
     if (this.config.provider === 'openai') {
       return this.callOpenAI(prompt)
     }
-    
+    if (this.config.provider === 'custom') {
+      return this.callCustomAI(prompt)
+    }
+
     throw new Error(this.config.language === 'zh-CN' ? '不支持的 AI 提供商' : 'Unsupported AI provider')
   }
-  
+
+  /**
+   * Helper to get normalized base URL
+   */
+  private getBaseUrl(): string {
+    const defaultOpenAI = 'https://api.openai.com/v1'
+    if (this.config.provider === 'openai') return defaultOpenAI
+    if (this.config.provider === 'custom' && this.config.baseUrl) {
+      let url = this.config.baseUrl.trim().replace(/\/+$/, '')
+      // If user provided the full path to an endpoint, strip it back to the base
+      const endpoints = ['/chat/completions', '/chat', '/completions', '/models']
+      for (const endpoint of endpoints) {
+        if (url.endsWith(endpoint)) {
+          url = url.substring(0, url.length - endpoint.length)
+        }
+      }
+      return url
+    }
+    return defaultOpenAI
+  }
+
+  /**
+   * Call Custom AI API
+   */
+  private async callCustomAI(prompt: string): Promise<string> {
+    const model = this.config.model || 'gpt-5'
+    const isZhCN = this.config.language === 'zh-CN'
+    const currentDate = new Date().toISOString().split('T')[0]
+
+    const systemContent = isZhCN
+      ? `你是一个专业的开发环境顾问，帮助开发者优化他们的开发环境。当前日期是 ${currentDate}。请基于 2026 年 1 月的最新技术标准提供建议。`
+      : `You are a professional development environment consultant helping developers optimize their environment. Current date is ${currentDate}. Please provide recommendations based on January 2026 technology standards.`
+
+    const requestBody: Record<string, unknown> = {
+      model,
+      messages: [
+        { role: 'system', content: systemContent },
+        { role: 'user', content: prompt }
+      ],
+      stream: false,
+      max_tokens: 2000,
+      temperature: 0.7
+    }
+
+    const baseUrl = this.getBaseUrl()
+    const url = `${baseUrl}/chat/completions`
+
+    console.log(`AI Request [custom]: ${url} (Model: ${model})`)
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.config.apiKey}`,
+        'Accept': 'application/json',
+        'User-Agent': 'Dev-Janitor-AI-Assistant/1.0'
+      },
+      body: JSON.stringify(requestBody)
+    })
+
+    if (!response.ok) {
+      let errorDetail = ''
+      const status = response.status
+      try {
+        const errorData = await response.json()
+        errorDetail = errorData.error?.message || JSON.stringify(errorData)
+        console.error('AI API Error Details:', errorData)
+      } catch {
+        errorDetail = await response.text().catch(() => 'Unknown error')
+      }
+
+      if (status === 404) {
+        const tip = isZhCN
+          ? `\n\n诊断建议：\n1. 检查模型名称 "${model}" 是否正确。\n2. 检查基础 URL "${baseUrl}" 是否多写或少写了 "/v1" 后缀。`
+          : `\n\nDiagnostic Tip:\n1. Check if the model name "${model}" is correct.\n2. Check if the Base URL "${baseUrl}" has an incorrect or missing "/v1" suffix.`
+        errorDetail += tip
+      }
+
+      throw new Error(`AI API ${isZhCN ? '错误' : 'error'}: ${status} ${response.statusText} - ${errorDetail}`)
+    }
+
+    interface AIResponse {
+      choices?: Array<{
+        message?: { content?: string }
+        text?: string
+      }>
+      content?: string
+    }
+
+    let data: AIResponse
+    try {
+      data = await response.json()
+    } catch {
+      throw new Error(isZhCN ? 'AI 响应格式错误（不是 JSON）' : 'AI API response format error')
+    }
+
+    const content = data.choices?.[0]?.message?.content ||
+                    data.choices?.[0]?.text ||
+                    data.content ||
+                    (typeof data === 'string' ? data : null)
+
+    if (!content) {
+      throw new Error(isZhCN ? '无法从 AI 响应中提取内容' : 'Unable to extract content from AI response')
+    }
+
+    return content
+  }
+
   /**
    * Call OpenAI API
    */
@@ -487,11 +598,11 @@ Please respond in English with clear formatting. Each suggestion should include 
     const isO3OrO4 = model.startsWith('o3') || model.startsWith('o4')
     const isZhCN = this.config.language === 'zh-CN'
     const currentDate = new Date().toISOString().split('T')[0]
-    
+
     const systemContent = isZhCN
       ? `你是一个专业的开发环境顾问，帮助开发者优化他们的开发环境。当前日期是 ${currentDate}。请基于 2026 年 1 月的最新技术标准提供建议。`
       : `You are a professional development environment consultant helping developers optimize their environment. Current date is ${currentDate}. Please provide recommendations based on January 2026 technology standards.`
-    
+
     // Build request body based on model type
     const requestBody: Record<string, unknown> = {
       model,
@@ -506,7 +617,7 @@ Please respond in English with clear formatting. Each suggestion should include 
         }
       ]
     }
-    
+
     // GPT-5 and o-series use max_completion_tokens instead of max_tokens
     if (isGPT5 || isO3OrO4) {
       requestBody.max_completion_tokens = 2000
@@ -514,7 +625,7 @@ Please respond in English with clear formatting. Each suggestion should include 
       requestBody.max_tokens = 2000
       requestBody.temperature = 0.7
     }
-    
+
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -523,14 +634,89 @@ Please respond in English with clear formatting. Each suggestion should include 
       },
       body: JSON.stringify(requestBody)
     })
-    
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
       throw new Error(`OpenAI API ${isZhCN ? '错误' : 'error'}: ${response.statusText}${errorData.error?.message ? ` - ${errorData.error.message}` : ''}`)
     }
-    
+
     const data = await response.json()
     return data.choices[0]?.message?.content || (isZhCN ? '无法获取 AI 响应' : 'Unable to get AI response')
+  }
+
+  /**
+   * Fetch available models from OpenAI or Custom provider
+   */
+  public async fetchModels(): Promise<string[]> {
+    if (this.config.provider !== 'openai' && this.config.provider !== 'custom') {
+      return []
+    }
+
+    const baseUrl = this.getBaseUrl()
+    const url = `${baseUrl}/models`
+
+    console.log(`Fetching models from: ${url}`)
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.config.apiKey}`
+        }
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Unknown error')
+        console.warn(`Failed to fetch models: ${response.status} ${response.statusText} - ${errorText}`)
+        return []
+      }
+
+      const data = await response.json()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return data.data?.map((m: any) => m.id) || []
+    } catch (e) {
+      console.error('Failed to parse models JSON:', e)
+      return []
+    }
+  }
+
+  /**
+   * Simple test to verify connection and API key
+   */
+  public async testConnection(): Promise<{ success: boolean; message: string }> {
+    try {
+      const baseUrl = this.getBaseUrl()
+      const url = `${baseUrl}/models`
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.config.apiKey}`
+        }
+      })
+
+      if (response.ok) {
+        return {
+          success: true,
+          message: this.config.language === 'zh-CN' ? '连接成功' : 'Connection successful'
+        }
+      } else {
+        const errorText = await response.text().catch(() => 'Unknown error')
+        return {
+          success: false,
+          message: this.config.language === 'zh-CN'
+            ? `API 错误: ${response.status} - ${errorText.substring(0, 100)}`
+            : `API Error: ${response.status} - ${errorText.substring(0, 100)}` 
+        }
+      }
+    } catch (error) {
+      return { 
+        success: false, 
+        message: this.config.language === 'zh-CN'
+          ? `网络错误: ${(error as Error).message}`
+          : `Network Error: ${(error as Error).message}` 
+      }
+    }
   }
 }
 
@@ -639,10 +825,37 @@ export class AIAssistant {
     }
     
     if (config.enabled && config.apiKey) {
-      this.aiAnalyzer = new AIAnalyzer(config)
+      this.aiAnalyzer = new AIAnalyzer({
+        ...config,
+        language: config.language || this.language
+      })
     } else {
       this.aiAnalyzer = null
     }
+  }
+
+  
+
+  /**
+   * Fetch models using current config
+   */
+  async fetchModels(): Promise<string[]> {
+    if (!this.aiAnalyzer) {
+      throw new Error(this.language === 'zh-CN' ? 'AI 助手未启用或未配置' : 'AI Assistant is not enabled or configured')
+    }
+    return this.aiAnalyzer.fetchModels()
+  }
+
+  /**
+   * Test AI connection with current config
+   */
+  async testConnection(config: AIConfig): Promise<{ success: boolean; message: string }> {
+    const configWithLang = {
+      ...config,
+      language: config.language || this.language
+    }
+    const tempAnalyzer = new AIAnalyzer(configWithLang)
+    return tempAnalyzer.testConnection()
   }
 }
 

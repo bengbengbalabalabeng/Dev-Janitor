@@ -62,6 +62,8 @@ interface ElectronAPI {
   ai: {
     analyze: (language?: 'en-US' | 'zh-CN') => Promise<AnalysisResult>
     updateConfig: (config: AIConfig) => Promise<void>
+    fetchModels: () => Promise<string[]>
+    testConnection: (config: AIConfig) => Promise<{ success: boolean; message: string }>
   }
 
   // Shell API (for opening paths, URLs, and executing commands)
@@ -159,6 +161,8 @@ const electronAPI: ElectronAPI = {
   ai: {
     analyze: (language?: 'en-US' | 'zh-CN') => ipcRenderer.invoke('ai:analyze', language),
     updateConfig: (config: AIConfig) => ipcRenderer.invoke('ai:update-config', config),
+    fetchModels: () => ipcRenderer.invoke('ai:fetch-models'),
+    testConnection: (config: AIConfig) => ipcRenderer.invoke('ai:test-connection', config)
   },
 
   // Shell API

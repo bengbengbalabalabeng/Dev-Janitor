@@ -275,6 +275,8 @@ function registerSettingsHandlers(): void {
       currentLanguage = lang
       // Notify all windows of language change
       sendToAllWindows('settings:language-changed', lang)
+      // Also update AI assistant language
+      aiAssistant.setLanguage(lang)
     }
   })
 }
@@ -322,6 +324,29 @@ function registerAIHandlers(): void {
     } catch (error) {
       console.error('Error updating AI config:', error)
       sendToAllWindows('error', `Failed to update AI config: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  })
+
+  // Fetch AI models
+  ipcMain.handle('ai:fetch-models', async (): Promise<string[]> => {
+    try {
+      return await aiAssistant.fetchModels()
+    } catch (error) {
+      console.error('Error fetching AI models:', error)
+      return []
+    }
+  })
+
+  // Test AI connection
+  ipcMain.handle('ai:test-connection', async (_event, config: AIConfig): Promise<{ success: boolean; message: string }> => {
+    try {
+      return await aiAssistant.testConnection(config)
+    } catch (error) {
+      console.error('Error testing AI connection:', error)
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'Unknown error'
+      }
     }
   })
 }

@@ -111,8 +111,9 @@ export interface Suggestion {
 }
 
 export interface AIConfig {
-  provider: 'openai' | 'anthropic' | 'local'
+  provider: 'openai' | 'anthropic' | 'local' | 'custom'
   apiKey?: string
+  baseUrl?: string
   model?: string
   enabled: boolean
   language?: 'en-US' | 'zh-CN'
