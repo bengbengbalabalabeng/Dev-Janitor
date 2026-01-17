@@ -47,8 +47,8 @@ jobs:
             release/**/*.zip
             release/**/*.AppImage
             release/**/*.deb
-            release/**/*.rpm
-            release/**/*.yml
+            release/**/*.blockmap
+            release/**/latest*.yml
           if-no-files-found: ignore
 
   release:
@@ -65,12 +65,22 @@ jobs:
           merge-multiple: true
 
       - name: List artifacts
-        run: find artifacts -type f
+        run: |
+          echo "=== All downloaded files ==="
+          find artifacts -type f 2>/dev/null || echo "No artifacts directory"
+          ls -la artifacts/ 2>/dev/null || echo "Cannot list artifacts"
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**/*
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.dmg
+            artifacts/**/*.zip
+            artifacts/**/*.AppImage
+            artifacts/**/*.deb
+            artifacts/**/*.blockmap
+            artifacts/**/latest*.yml
           generate_release_notes: true
           draft: false
           prerelease: false
