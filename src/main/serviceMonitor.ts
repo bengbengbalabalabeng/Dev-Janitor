@@ -16,6 +16,15 @@ import {
   isWindows,
   executeSafe,
 } from './commandExecutor'
+import { BoundedLRUCache, CLEANUP_INTERVAL } from './utils/cacheManager'
+
+/**
+ * Debounce configuration constants
+ * Validates: Requirements 6.1, 6.3
+ */
+export const DEBOUNCE_MS = 500
+export const BACKGROUND_INTERVAL = 30000 // Window not visible: 30 seconds
+export const FOREGROUND_INTERVAL = 5000  // Window visible: 5 seconds
 
 /**
  * Common development service ports to monitor
@@ -112,8 +121,8 @@ export function parseLsofLine(line: string): { port: number; pid: number; name: 
   return { port, pid, name }
 }
 
-// Cache for process info to avoid repeated calls
-const processInfoCache = new Map<number, { name: string; command: string; timestamp: number }>()
+// Cache for process info with LRU eviction (max 1000 entries, 5 min expiration)
+const processInfoCache = new BoundedLRUCache<number, { name: string; command: string }>(1000, 300000)
 
 /**
  * Get process information by PID on Unix using ps
@@ -204,11 +213,10 @@ async function listWindowsServices(): Promise<RunningService[]> {
   for (const [pid, port] of pidPortMap) {
     const name = processNameMap.get(pid)
     if (name) {
-      // Update cache
+      // Update cache (timestamp handled internally by BoundedLRUCache)
       processInfoCache.set(pid, {
         name,
         command: name, // Use name as command to avoid wmic calls
-        timestamp: Date.now()
       })
       
       services.push({
@@ -381,10 +389,21 @@ export function filterDevServices(services: RunningService[]): RunningService[] 
 
 /**
  * ServiceMonitor class providing monitoring functionality with auto-refresh
+ * 
+ * Validates: Requirements 6.1, 6.2, 6.3, 6.4
  */
 export class ServiceMonitor {
   private monitoringInterval: NodeJS.Timeout | null = null
+  private cacheCleanupInterval: NodeJS.Timeout | null = null
   private listeners: ((services: RunningService[]) => void)[] = []
+  
+  // Debounce state - Validates: Requirement 6.1
+  private debounceTimeout: NodeJS.Timeout | null = null
+  private pendingUpdate: boolean = false
+  
+  // Window visibility state - Validates: Requirement 6.3
+  private windowVisible: boolean = true
+  private currentInterval: number = FOREGROUND_INTERVAL
   
   /**
    * List all running services
@@ -411,21 +430,32 @@ export class ServiceMonitor {
    * Start auto-monitoring services
    * 
    * Validates: Requirement 11.6 (refresh every 5 seconds)
-   * @param interval Refresh interval in milliseconds (default: 5000)
+   * Validates: Requirement 6.1 (debounce updates)
+   * @param interval Refresh interval in milliseconds (default: FOREGROUND_INTERVAL)
    */
-  startMonitoring(interval: number = 5000): void {
+  startMonitoring(interval: number = FOREGROUND_INTERVAL): void {
     if (this.monitoringInterval) {
       this.stopMonitoring()
     }
     
+    this.currentInterval = interval
+    
     this.monitoringInterval = setInterval(async () => {
       try {
         const services = await this.listRunningServices()
-        this.notifyListeners(services)
+        this.debouncedNotify(services) // Use debounced notify - Validates: Requirement 6.1
       } catch {
         // Silently handle errors during monitoring
       }
     }, interval)
+    
+    // Start cache cleanup (every 5 minutes)
+    // Validates: Requirement 5.4 (execute cache cleanup every 5 minutes)
+    if (!this.cacheCleanupInterval) {
+      this.cacheCleanupInterval = setInterval(() => {
+        processInfoCache.cleanup()
+      }, CLEANUP_INTERVAL)
+    }
   }
   
   /**
@@ -436,6 +466,96 @@ export class ServiceMonitor {
       clearInterval(this.monitoringInterval)
       this.monitoringInterval = null
     }
+    
+    // Stop cache cleanup
+    if (this.cacheCleanupInterval) {
+      clearInterval(this.cacheCleanupInterval)
+      this.cacheCleanupInterval = null
+    }
+    
+    // Clear debounce timeout - Validates: Requirement 6.1
+    if (this.debounceTimeout) {
+      clearTimeout(this.debounceTimeout)
+      this.debounceTimeout = null
+    }
+    this.pendingUpdate = false
+  }
+  
+  /**
+   * Debounced notify - merges multiple updates within DEBOUNCE_MS into one
+   * 
+   * Validates: Requirement 6.1 (merge updates within 500ms)
+   * Validates: Requirement 6.2 (batch send updates)
+   * @param services The services to notify listeners about
+   */
+  private debouncedNotify(services: RunningService[]): void {
+    this.pendingUpdate = true
+    
+    if (this.debounceTimeout) {
+      clearTimeout(this.debounceTimeout)
+    }
+    
+    this.debounceTimeout = setTimeout(() => {
+      if (this.pendingUpdate) {
+        this.notifyListeners(services)
+        this.pendingUpdate = false
+      }
+      this.debounceTimeout = null
+    }, DEBOUNCE_MS)
+  }
+  
+  /**
+   * Set window visibility and adjust monitoring interval accordingly
+   * 
+   * Validates: Requirement 6.3 (reduce frequency to 30s when window not visible)
+   * @param visible Whether the window is visible
+   */
+  setWindowVisible(visible: boolean): void {
+    if (this.windowVisible === visible) return
+    
+    this.windowVisible = visible
+    const newInterval = visible ? FOREGROUND_INTERVAL : BACKGROUND_INTERVAL
+    
+    if (this.currentInterval !== newInterval && this.monitoringInterval) {
+      this.currentInterval = newInterval
+      this.stopMonitoring()
+      this.startMonitoring(newInterval)
+    }
+  }
+  
+  /**
+   * Force an immediate update, bypassing debounce
+   * 
+   * Validates: Requirement 6.4 (execute immediately on user request)
+   * @returns Promise resolving when update is complete
+   */
+  async forceUpdate(): Promise<void> {
+    // Clear any pending debounce
+    if (this.debounceTimeout) {
+      clearTimeout(this.debounceTimeout)
+      this.debounceTimeout = null
+    }
+    this.pendingUpdate = false
+    
+    // Execute immediately
+    const services = await this.listRunningServices()
+    this.notifyListeners(services)
+  }
+  
+  /**
+   * Get current window visibility state
+   * @returns Whether the window is currently visible
+   */
+  isWindowVisible(): boolean {
+    return this.windowVisible
+  }
+  
+  /**
+   * Get current monitoring interval
+   * @returns Current interval in milliseconds
+   */
+  getCurrentInterval(): number {
+    return this.currentInterval
   }
   
   /**

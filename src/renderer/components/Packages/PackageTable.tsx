@@ -8,8 +8,8 @@
  * - Copy and link actions only (safe operations)
  */
 
-import React, { useState, useEffect } from 'react'
-import { Table, Button, Typography, Tooltip, message, Tag, Space } from 'antd'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { Table, Button, Typography, Tooltip, message, Tag, Space, Progress } from 'antd'
 import {
   LinkOutlined,
   CopyOutlined,
@@ -18,6 +18,7 @@ import {
   LoadingOutlined,
   SyncOutlined,
   DownloadOutlined,
+  StopOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import type { PackageInfo } from '@shared/types'
@@ -82,13 +83,34 @@ const PackageTable: React.FC<PackageTableProps> = ({
   const { t } = useTranslation()
   const [versionCache, setVersionCache] = useState<Record<string, VersionInfo>>({})
   const [checkingAll, setCheckingAll] = useState(false)
+  
+  // Progress state for version check - Validates: Requirements 8.1, 8.2, 8.4
+  const [checkProgress, setCheckProgress] = useState<{
+    total: number;
+    completed: number;
+    cancelled: boolean;
+  } | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+
+  // Memoize version comparison results to avoid recalculation on every render
+  // Validates: Requirement 7.1
+  const memoizedVersionComparison = useMemo(() => {
+    return packages.reduce((acc, pkg) => {
+      const cached = versionCache[pkg.name];
+      if (cached?.checked && cached.latest) {
+        acc[pkg.name] = compareVersions(pkg.version, cached.latest);
+      }
+      return acc;
+    }, {} as Record<string, number>);
+  }, [packages, versionCache]);
 
   // Reset cache when packages change
   useEffect(() => {
     setVersionCache({})
   }, [packages])
 
-  const handleCopyLocation = (location: string) => {
+  // Validates: Requirement 7.2
+  const handleCopyLocation = useCallback((location: string) => {
     navigator.clipboard.writeText(location)
       .then(() => {
         message.success(t('notifications.copySuccess'))
@@ -96,9 +118,10 @@ const PackageTable: React.FC<PackageTableProps> = ({
       .catch(() => {
         message.error(t('notifications.copyFailed'))
       })
-  }
+  }, [t])
 
-  const handleCopyUpdateCommand = (packageName: string) => {
+  // Validates: Requirement 7.2
+  const handleCopyUpdateCommand = useCallback((packageName: string) => {
     let command = ''
     switch (manager) {
       case 'npm':
@@ -118,10 +141,11 @@ const PackageTable: React.FC<PackageTableProps> = ({
       .catch(() => {
         message.error(t('notifications.copyFailed', 'Copy failed'))
       })
-  }
+  }, [manager, t])
 
+  // Validates: Requirement 7.2
   // Update a single package
-  const handleUpdatePackage = async (packageName: string) => {
+  const handleUpdatePackage = useCallback(async (packageName: string) => {
     if (manager !== 'npm' && manager !== 'pip') {
       message.info(t('packages.updateNotSupported', 'Update only supports npm and pip'))
       return
@@ -163,17 +187,19 @@ const PackageTable: React.FC<PackageTableProps> = ({
         [packageName]: { ...prev[packageName], updating: false }
       }))
     }
-  }
+  }, [manager, t, onRefresh])
 
-  const handleOpenExternal = (packageName: string) => {
+  // Validates: Requirement 7.2
+  const handleOpenExternal = useCallback((packageName: string) => {
     const url = getPackageUrl(packageName, manager)
     if (url) {
       window.open(url, '_blank', 'noopener,noreferrer')
     }
-  }
+  }, [manager])
 
+  // Validates: Requirement 7.2
   // Check single package version
-  const checkVersion = async (packageName: string) => {
+  const checkVersion = useCallback(async (packageName: string) => {
     if (manager !== 'npm' && manager !== 'pip') {
       message.info(t('packages.versionCheckNotSupported', 'Version check only supports npm and pip'))
       return
@@ -209,26 +235,57 @@ const PackageTable: React.FC<PackageTableProps> = ({
         [packageName]: { latest: t('packages.checkFailed', 'Check failed'), checking: false, checked: true }
       }))
     }
-  }
+  }, [manager, t])
 
-  // Check all packages versions
-  const checkAllVersions = async () => {
+  // Validates: Requirements 7.2, 8.1, 8.2, 8.3, 8.4
+  // Check all packages versions with progress tracking and cancellation support
+  const checkAllVersions = useCallback(async () => {
     if (manager !== 'npm' && manager !== 'pip') {
       message.info(t('packages.versionCheckNotSupported', 'Version check only supports npm and pip'))
       return
     }
 
-    setCheckingAll(true)
+    // Create abort controller for cancellation - Validates: Requirement 8.4
+    abortControllerRef.current = new AbortController()
     
-    for (const pkg of packages) {
-      await checkVersion(pkg.name)
+    setCheckingAll(true)
+    // Initialize progress - Validates: Requirements 8.1, 8.2
+    setCheckProgress({ total: packages.length, completed: 0, cancelled: false })
+    
+    for (let i = 0; i < packages.length; i++) {
+      // Check if cancelled - Validates: Requirement 8.4
+      if (abortControllerRef.current?.signal.aborted) {
+        setCheckProgress(prev => prev ? { ...prev, cancelled: true } : null)
+        break
+      }
+      
+      await checkVersion(packages[i].name)
+      // Update progress - Validates: Requirement 8.2
+      setCheckProgress(prev => prev ? { ...prev, completed: i + 1 } : null)
+      
       // Small delay to avoid rate limiting
       await new Promise(resolve => setTimeout(resolve, 200))
     }
     
     setCheckingAll(false)
-    message.success(t('packages.versionCheckComplete', 'Version check complete'))
-  }
+    
+    // Show completion notification - Validates: Requirement 8.3
+    if (!abortControllerRef.current?.signal.aborted) {
+      message.success(t('packages.versionCheckComplete', 'Version check complete'))
+    } else {
+      message.info(t('packages.versionCheckCancelled', 'Version check cancelled'))
+    }
+    
+    setCheckProgress(null)
+    abortControllerRef.current = null
+  }, [manager, packages, t, checkVersion])
+
+  // Cancel handler for version check - Validates: Requirement 8.4
+  const handleCancelCheck = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+  }, [])
 
   // Render version status
   const renderVersionStatus = (record: PackageInfo) => {
@@ -253,7 +310,8 @@ const PackageTable: React.FC<PackageTableProps> = ({
       )
     }
 
-    const comparison = compareVersions(record.version, info.latest)
+    // Use memoized comparison instead of calling compareVersions directly
+    const comparison = memoizedVersionComparison[record.name] ?? 0
     
     if (comparison >= 0) {
       return (
@@ -360,13 +418,35 @@ const PackageTable: React.FC<PackageTableProps> = ({
     <div>
       {(manager === 'npm' || manager === 'pip') && packages.length > 0 && (
         <div style={{ marginBottom: 16 }}>
-          <Button
-            icon={checkingAll ? <LoadingOutlined /> : <SyncOutlined />}
-            onClick={checkAllVersions}
-            disabled={checkingAll}
-          >
-            {checkingAll ? t('packages.checking', 'Checking...') : t('packages.checkAllUpdates', 'Check All Updates')}
-          </Button>
+          <Space>
+            <Button
+              icon={checkingAll ? <LoadingOutlined /> : <SyncOutlined />}
+              onClick={checkAllVersions}
+              disabled={checkingAll}
+            >
+              {checkingAll ? t('packages.checking', 'Checking...') : t('packages.checkAllUpdates', 'Check All Updates')}
+            </Button>
+            {/* Cancel button - Validates: Requirement 8.4 */}
+            {checkingAll && (
+              <Button
+                icon={<StopOutlined />}
+                onClick={handleCancelCheck}
+                danger
+              >
+                {t('common.cancel', 'Cancel')}
+              </Button>
+            )}
+          </Space>
+          {/* Progress bar - Validates: Requirements 8.1, 8.2 */}
+          {checkProgress && (
+            <div style={{ marginTop: 8 }}>
+              <Progress 
+                percent={Math.round((checkProgress.completed / checkProgress.total) * 100)}
+                status={checkProgress.cancelled ? 'exception' : 'active'}
+                format={() => `${checkProgress.completed}/${checkProgress.total}`}
+              />
+            </div>
+          )}
         </div>
       )}
       <Table

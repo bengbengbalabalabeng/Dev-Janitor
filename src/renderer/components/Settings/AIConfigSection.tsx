@@ -6,10 +6,15 @@
  * - Configure API provider (OpenAI, Anthropic)
  * - Set API key
  * - Select model
+ * 
+ * Responsive Design:
+ * - Breakpoint at 768px for mobile/tablet layouts
+ * - Vertical button stacking on small screens
+ * - Full-width form controls on mobile
  */
 
 import React, { useState, useEffect } from 'react'
-import { Card, Form, Input, Select, Switch, Button, Alert, Space, Typography, Divider, message } from 'antd'
+import { Card, Form, Input, Select, Switch, Button, Alert, Space, Typography, Divider, message, Grid } from 'antd'
 import { RobotOutlined, KeyOutlined, SaveOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import type { AIConfig } from '../../../shared/types'
@@ -17,8 +22,13 @@ import type { AIConfig } from '../../../shared/types'
 const { Text, Paragraph } = Typography
 const { Option } = Select
 const { Password } = Input
+const { useBreakpoint } = Grid
 
 export const AIConfigSection: React.FC = () => {
+  // Use Ant Design's responsive breakpoint hook
+  const screens = useBreakpoint()
+  // Consider small screen if md breakpoint is not reached (< 768px)
+  const isSmallScreen = !screens.md
   const { t } = useTranslation()
   const [form] = Form.useForm()
   const [saving, setSaving] = useState(false)
@@ -145,13 +155,22 @@ export const AIConfigSection: React.FC = () => {
         </Space>
       }
       extra={
-        <Space>
-          <Button onClick={handleReset}>
+        // Responsive button group: vertical on small screens, horizontal on larger screens
+        <Space 
+          direction={isSmallScreen ? 'vertical' : 'horizontal'}
+          size="small"
+          style={isSmallScreen ? { width: '100%' } : undefined}
+        >
+          <Button 
+            onClick={handleReset}
+            block={isSmallScreen}
+          >
             {t('common.reset', '重置')}
           </Button>
           <Button
             onClick={handleTestConnection}
             loading={testing}
+            block={isSmallScreen}
           >
             {t('settings.testConnection', '测试连接')}
           </Button>
@@ -160,11 +179,20 @@ export const AIConfigSection: React.FC = () => {
             icon={<SaveOutlined />}
             onClick={handleSave}
             loading={saving}
+            block={isSmallScreen}
           >
             {t('common.save', '保存')}
           </Button>
         </Space>
       }
+      // On small screens, move extra buttons below title
+      styles={isSmallScreen ? { 
+        header: { 
+          flexDirection: 'column', 
+          alignItems: 'flex-start',
+          gap: '12px'
+        } 
+      } : undefined}
     >
       <Space direction="vertical" style={{ width: '100%' }} size="large">
         {/* Info Alert */}
@@ -267,30 +295,60 @@ export const AIConfigSection: React.FC = () => {
             tooltip={t('settings.aiModelTooltip', '选择或输入使用的 AI 模型')}
             required
           >
-            <Space.Compact style={{ width: '100%' }}>
-              <Form.Item
-                name="model"
-                noStyle
-              >
-                <Select
-                  showSearch
-                  allowClear
-                  style={{ width: '100%' }}
-                  placeholder={t('settings.selectOrInputModel', '选择或输入模型')}
-                  filterOption={(input, option) =>
-                    (option?.label as string ?? '').toLowerCase().includes(input.toLowerCase()) ||
-                    (option?.value as string ?? '').toLowerCase().includes(input.toLowerCase())
-                  }
-                  options={modelOptions}
+            {/* Responsive layout: vertical on small screens, horizontal compact on larger screens */}
+            {isSmallScreen ? (
+              <Space direction="vertical" style={{ width: '100%' }} size="small">
+                <Form.Item
+                  name="model"
+                  noStyle
+                >
+                  <Select
+                    showSearch
+                    allowClear
+                    style={{ width: '100%' }}
+                    placeholder={t('settings.selectOrInputModel', '选择或输入模型')}
+                    filterOption={(input, option) =>
+                      (option?.label as string ?? '').toLowerCase().includes(input.toLowerCase()) ||
+                      (option?.value as string ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
+                    options={modelOptions}
+                  />
+                </Form.Item>
+                <Button
+                  icon={<ReloadOutlined />}
+                  onClick={handleFetchModels}
+                  loading={fetchingModels}
+                  block
+                >
+                  {t('settings.fetchModels', '获取模型列表')}
+                </Button>
+              </Space>
+            ) : (
+              <Space.Compact style={{ width: '100%' }}>
+                <Form.Item
+                  name="model"
+                  noStyle
+                >
+                  <Select
+                    showSearch
+                    allowClear
+                    style={{ width: '100%' }}
+                    placeholder={t('settings.selectOrInputModel', '选择或输入模型')}
+                    filterOption={(input, option) =>
+                      (option?.label as string ?? '').toLowerCase().includes(input.toLowerCase()) ||
+                      (option?.value as string ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
+                    options={modelOptions}
+                  />
+                </Form.Item>
+                <Button
+                  icon={<ReloadOutlined />}
+                  onClick={handleFetchModels}
+                  loading={fetchingModels}
+                  title={t('settings.fetchModels', '获取模型列表')}
                 />
-              </Form.Item>
-              <Button
-                icon={<ReloadOutlined />}
-                onClick={handleFetchModels}
-                loading={fetchingModels}
-                title={t('settings.fetchModels', '获取模型列表')}
-              />
-            </Space.Compact>
+              </Space.Compact>
+            )}
           </Form.Item>
 
           {/* Model Info Alert */}

@@ -9,7 +9,7 @@
  * - Environment scanning
  * - Settings management
  * 
- * Validates: Requirements 1.1, 3.1, 4.1, 10.1, 11.1
+ * Validates: Requirements 1.1, 1.3, 2.1, 2.2, 2.3, 2.4, 3.1, 4.1, 10.1, 11.1
  */
 
 import { ipcMain, BrowserWindow, shell } from 'electron'
@@ -19,10 +19,15 @@ import { serviceMonitor } from './serviceMonitor'
 import { environmentScanner } from './environmentScanner'
 import { aiAssistant } from './aiAssistant'
 import { commandExecutor } from './commandExecutor'
+import { commandValidator, inputValidator, validateIPCSender } from './security'
 import type { ToolInfo, PackageInfo, RunningService, EnvironmentVariable, AnalysisResult, AIConfig } from '../shared/types'
 
 // Store for language preference
 let currentLanguage = 'en-US'
+
+// Track if IPC handlers are registered to prevent duplicate registration
+// Validates: Requirement 11.4 - Prevent duplicate IPC handler registration
+let ipcHandlersRegistered = false
 
 // Cache for environment data to allow re-analysis without re-scanning
 let cachedEnvironmentData: {
@@ -151,17 +156,29 @@ function registerPackagesHandlers(): void {
   })
 
   // Uninstall a package
-  ipcMain.handle('packages:uninstall', async (_event, name: string, manager: string): Promise<boolean> => {
+  ipcMain.handle('packages:uninstall', async (event, name: string, manager: string): Promise<{ success: boolean; error?: string }> => {
     try {
-      if (manager !== 'npm' && manager !== 'pip' && manager !== 'composer') {
-        throw new Error(`Invalid package manager: ${manager}`)
+      // Validate IPC sender (Requirement 1.3 - security logging)
+      if (!validateIPCSender(event)) {
+        console.warn('Security warning: IPC message from untrusted sender for packages:uninstall');
+        return { success: false, error: 'Untrusted sender' };
       }
-      const success = await packageManager.uninstallPackage(name, manager)
-      return success
+
+      // Validate package name format (Requirement 2.1)
+      const nameValidation = inputValidator.validatePackageName(name);
+      if (!nameValidation.valid) {
+        return { success: false, error: nameValidation.error };
+      }
+
+      if (manager !== 'npm' && manager !== 'pip' && manager !== 'composer') {
+        return { success: false, error: `Invalid package manager: ${manager}` };
+      }
+      const success = await packageManager.uninstallPackage(nameValidation.value!, manager);
+      return { success };
     } catch (error) {
-      console.error(`Error uninstalling package ${name}:`, error)
-      sendToAllWindows('error', `Failed to uninstall ${name}: ${error instanceof Error ? error.message : 'Unknown error'}`)
-      return false
+      console.error(`Error uninstalling package ${name}:`, error);
+      sendToAllWindows('error', `Failed to uninstall ${name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   })
 
@@ -208,10 +225,16 @@ function registerPackagesHandlers(): void {
   // Update a package to the latest version
   ipcMain.handle('packages:update', async (_event, name: string, manager: string): Promise<{ success: boolean; newVersion?: string; error?: string }> => {
     try {
+      // Validate package name format (Requirement 2.1)
+      const nameValidation = inputValidator.validatePackageName(name);
+      if (!nameValidation.valid) {
+        return { success: false, error: nameValidation.error };
+      }
+
       if (manager !== 'npm' && manager !== 'pip') {
         return { success: false, error: `Package update not supported for ${manager}` }
       }
-      const result = await packageManager.updatePackage(name, manager)
+      const result = await packageManager.updatePackage(nameValidation.value!, manager)
       return result
     } catch (error) {
       console.error(`Error updating package ${name}:`, error)
@@ -242,9 +265,22 @@ function registerServicesHandlers(): void {
   })
 
   // Kill a service by PID
-  ipcMain.handle('services:kill', async (_event, pid: number): Promise<boolean> => {
+  ipcMain.handle('services:kill', async (event, pid: number): Promise<boolean> => {
     try {
-      const success = await serviceMonitor.killService(pid)
+      // Validate IPC sender (Requirement 1.3 - security logging)
+      if (!validateIPCSender(event)) {
+        console.warn('Security warning: IPC message from untrusted sender for services:kill');
+        return false;
+      }
+
+      // Validate PID as positive integer (Requirement 2.2)
+      const pidValidation = inputValidator.validatePID(pid);
+      if (!pidValidation.valid) {
+        console.warn(`Security warning: Invalid PID validation failed: ${pidValidation.error}`);
+        return false;
+      }
+
+      const success = await serviceMonitor.killService(pidValidation.value!)
       return success
     } catch (error) {
       console.error(`Error killing service ${pid}:`, error)
@@ -400,7 +436,14 @@ function registerShellHandlers(): void {
   // Open a path in file explorer
   ipcMain.handle('shell:open-path', async (_event, path: string): Promise<string> => {
     try {
-      return await shell.openPath(path)
+      // Validate path doesn't contain path traversal (Requirement 2.3)
+      const pathValidation = inputValidator.validatePath(path);
+      if (!pathValidation.valid) {
+        console.warn(`Security warning: Path validation failed: ${pathValidation.error}`);
+        return pathValidation.error!;
+      }
+
+      return await shell.openPath(pathValidation.value!)
     } catch (error) {
       console.error('Error opening path:', error)
       return error instanceof Error ? error.message : 'Unknown error'
@@ -418,9 +461,22 @@ function registerShellHandlers(): void {
   })
 
   // Execute a shell command
-  ipcMain.handle('shell:execute-command', async (_event, command: string): Promise<{ success: boolean; stdout: string; stderr: string }> => {
+  ipcMain.handle('shell:execute-command', async (event, command: string): Promise<{ success: boolean; stdout: string; stderr: string }> => {
     try {
-      const result = await commandExecutor.execute(command, { timeout: 60000 }) // 60 second timeout
+      // Validate IPC sender (Requirement 1.3 - security logging)
+      if (!validateIPCSender(event)) {
+        console.warn('Security warning: IPC message from untrusted sender for shell:execute-command');
+        return { success: false, stdout: '', stderr: 'Untrusted sender' };
+      }
+
+      // Validate command before execution (Requirement 1.1)
+      const validationResult = commandValidator.validateCommand(command);
+      if (!validationResult.valid) {
+        console.warn('Security warning: Command validation failed:', validationResult.error);
+        return { success: false, stdout: '', stderr: validationResult.error! };
+      }
+
+      const result = await commandExecutor.execute(validationResult.sanitizedCommand!, { timeout: 60000 }) // 60 second timeout
       return {
         success: result.success,
         stdout: result.stdout,
@@ -476,10 +532,26 @@ export function sendError(error: string): void {
 }
 
 /**
+ * Check if IPC handlers are already registered
+ * Validates: Requirement 11.4 - Prevent duplicate registration
+ * @returns true if handlers are registered, false otherwise
+ */
+export function areIPCHandlersRegistered(): boolean {
+  return ipcHandlersRegistered
+}
+
+/**
  * Register all IPC handlers
  * Call this function during app initialization
+ * Validates: Requirement 11.4 - Prevent duplicate registration
  */
 export function registerAllIPCHandlers(): void {
+  // Prevent duplicate registration (Requirement 11.4)
+  if (ipcHandlersRegistered) {
+    console.warn('IPC handlers already registered, skipping duplicate registration')
+    return
+  }
+
   registerToolsHandlers()
   registerPackagesHandlers()
   registerServicesHandlers()
@@ -491,17 +563,25 @@ export function registerAllIPCHandlers(): void {
   // Start service monitoring
   startServiceMonitoring()
   
+  ipcHandlersRegistered = true
   console.log('All IPC handlers registered')
 }
 
 /**
  * Cleanup IPC handlers and stop monitoring
  * Call this function during app shutdown
+ * Validates: Requirements 11.2, 11.3 - Clean up IPC handlers on quit
  */
 export function cleanupIPCHandlers(): void {
+  // Only cleanup if handlers were registered
+  if (!ipcHandlersRegistered) {
+    console.log('IPC handlers not registered, skipping cleanup')
+    return
+  }
+
   stopServiceMonitoring()
   
-  // Remove all handlers
+  // Remove all handlers using ipcMain.removeHandler()
   ipcMain.removeHandler('tools:detect-all')
   ipcMain.removeHandler('tools:detect-one')
   ipcMain.removeHandler('packages:list-npm')
@@ -521,16 +601,20 @@ export function cleanupIPCHandlers(): void {
   ipcMain.removeHandler('settings:set-language')
   ipcMain.removeHandler('ai:analyze')
   ipcMain.removeHandler('ai:update-config')
+  ipcMain.removeHandler('ai:fetch-models')
+  ipcMain.removeHandler('ai:test-connection')
   ipcMain.removeHandler('shell:open-path')
   ipcMain.removeHandler('shell:open-external')
   ipcMain.removeHandler('shell:execute-command')
   
+  ipcHandlersRegistered = false
   console.log('All IPC handlers cleaned up')
 }
 
 export default {
   registerAllIPCHandlers,
   cleanupIPCHandlers,
+  areIPCHandlersRegistered,
   sendDetectionProgress,
   sendError,
 }

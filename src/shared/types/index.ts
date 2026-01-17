@@ -118,3 +118,29 @@ export interface AIConfig {
   enabled: boolean
   language?: 'en-US' | 'zh-CN'
 }
+
+// Re-export IPC Response types - Validates: Requirements 15.1, 15.2, 15.3, 15.4
+export {
+  IPCErrorCode,
+  type IPCError,
+  type IPCResponse,
+  createSuccessResponse,
+  createErrorResponse,
+  isSuccessResponse,
+  isErrorResponse,
+  unwrapResponse,
+  getErrorMessage,
+} from './ipcResponse'
+
+// IPC Response Types - Unified error handling
+export {
+  IPCErrorCode,
+  type IPCError,
+  type IPCResponse,
+  createSuccessResponse,
+  createErrorResponse,
+  isSuccessResponse,
+  isErrorResponse,
+  unwrapResponse,
+  getErrorMessage,
+} from './ipcResponse'

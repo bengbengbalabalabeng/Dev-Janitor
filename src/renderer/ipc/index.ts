@@ -5,10 +5,23 @@
  * This module wraps the electronAPI exposed by the preload script and
  * provides convenient methods for all IPC operations.
  * 
- * Validates: Requirements 1.1, 3.1, 4.1, 10.1, 11.1
+ * Validates: Requirements 1.1, 3.1, 4.1, 10.1, 11.1, 13.1, 13.2, 13.3, 13.4
  */
 
 import type { ToolInfo, PackageInfo, RunningService, EnvironmentVariable } from '@shared/types'
+
+// Re-export IPC timeout utilities
+export {
+  ipcClientWithTimeout,
+  invokeWithTimeout,
+  withTimeout,
+  createIPCInvoker,
+  isIPCTimeoutError,
+  getIPCErrorMessage,
+  IPCTimeoutError,
+  DEFAULT_IPC_TIMEOUT,
+  type IPCCallOptions,
+} from './ipcClientWithTimeout'
 
 /**
  * Check if running in Electron environment

@@ -7,11 +7,69 @@
  * 
  * Security: contextIsolation is enabled, nodeIntegration is disabled
  * 
- * Validates: Requirements 1.1, 3.1, 4.1, 10.1, 11.1
+ * Validates: Requirements 1.1, 3.1, 4.1, 10.1, 11.1, 12.1, 12.2, 12.3, 12.4
  */
 
 import { ipcRenderer, contextBridge } from 'electron'
 import type { ToolInfo, PackageInfo, RunningService, EnvironmentVariable, AnalysisResult, AIConfig } from '../shared/types'
+
+/**
+ * Preload error logging utility
+ * Provides detailed error logging with timestamps and stack traces
+ * Validates: Requirements 12.1, 12.4
+ */
+interface PreloadError {
+  apiName: string
+  message: string
+  stack?: string
+  timestamp: string
+}
+
+/**
+ * Log a preload error with detailed information
+ * @param apiName - The name of the API that failed
+ * @param error - The error that occurred
+ */
+function logPreloadError(apiName: string, error: unknown): PreloadError {
+  const timestamp = new Date().toISOString()
+  const errorMessage = error instanceof Error ? error.message : String(error)
+  const errorStack = error instanceof Error ? error.stack : undefined
+  
+  const preloadError: PreloadError = {
+    apiName,
+    message: errorMessage,
+    stack: errorStack,
+    timestamp
+  }
+  
+  // Log detailed error to console
+  console.error(`[Preload Error] ${timestamp}`)
+  console.error(`  API: ${apiName}`)
+  console.error(`  Message: ${errorMessage}`)
+  if (errorStack) {
+    console.error(`  Stack: ${errorStack}`)
+  }
+  
+  return preloadError
+}
+
+/**
+ * Preload initialization status
+ * Tracks which APIs were successfully exposed
+ */
+interface PreloadStatus {
+  initialized: boolean
+  exposedAPIs: string[]
+  failedAPIs: PreloadError[]
+  degradedMode: boolean
+}
+
+const preloadStatus: PreloadStatus = {
+  initialized: false,
+  exposedAPIs: [],
+  failedAPIs: [],
+  degradedMode: false
+}
 
 /**
  * Type-safe IPC API exposed to renderer
@@ -19,6 +77,14 @@ import type { ToolInfo, PackageInfo, RunningService, EnvironmentVariable, Analys
 interface ElectronAPI {
   // Platform information
   platform: NodeJS.Platform
+
+  // Preload status (for debugging and degraded mode detection)
+  preloadStatus: {
+    isInitialized: () => boolean
+    isDegradedMode: () => boolean
+    getExposedAPIs: () => string[]
+    getFailedAPIs: () => PreloadError[]
+  }
 
   // Tools API
   tools: {
@@ -95,174 +161,357 @@ interface ElectronAPI {
   }
 }
 
-// Create the API object
-const electronAPI: ElectronAPI = {
-  // Platform information
-  platform: process.platform,
+/**
+ * Create a degraded API that returns error messages for all methods
+ * Used when the main API exposure fails
+ * Validates: Requirements 12.3
+ */
+function createDegradedAPI(): ElectronAPI {
+  const degradedError = new Error('API not available - preload script failed to initialize')
+  
+  const createDegradedPromise = <T>(): Promise<T> => {
+    return Promise.reject(degradedError)
+  }
+  
+  const createDegradedCallback = (): (() => void) => {
+    console.warn('[Preload] Attempted to register callback in degraded mode')
+    return () => {} // No-op cleanup function
+  }
 
-  // Tools API
-  tools: {
-    detectAll: () => ipcRenderer.invoke('tools:detect-all'),
-    detectOne: (toolName: string) => ipcRenderer.invoke('tools:detect-one', toolName),
-  },
+  return {
+    platform: process.platform,
+    
+    preloadStatus: {
+      isInitialized: () => preloadStatus.initialized,
+      isDegradedMode: () => preloadStatus.degradedMode,
+      getExposedAPIs: () => [...preloadStatus.exposedAPIs],
+      getFailedAPIs: () => [...preloadStatus.failedAPIs]
+    },
 
-  // Packages API
-  packages: {
-    listNpm: () => ipcRenderer.invoke('packages:list-npm'),
-    listPip: () => ipcRenderer.invoke('packages:list-pip'),
-    listComposer: () => ipcRenderer.invoke('packages:list-composer'),
-    listCargo: () => ipcRenderer.invoke('packages:list-cargo'),
-    listGem: () => ipcRenderer.invoke('packages:list-gem'),
-    uninstall: (name: string, manager: string) => 
-      ipcRenderer.invoke('packages:uninstall', name, manager),
-    update: (name: string, manager: string) =>
-      ipcRenderer.invoke('packages:update', name, manager),
-    checkNpmLatestVersion: (packageName: string) =>
-      ipcRenderer.invoke('packages:check-npm-latest', packageName),
-    checkPipLatestVersion: (packageName: string) =>
-      ipcRenderer.invoke('packages:check-pip-latest', packageName),
-  },
+    tools: {
+      detectAll: createDegradedPromise,
+      detectOne: createDegradedPromise,
+    },
 
-  // Services API
-  services: {
-    list: () => ipcRenderer.invoke('services:list'),
-    kill: (pid: number) => ipcRenderer.invoke('services:kill', pid),
-    onUpdated: (callback: (services: RunningService[]) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, services: RunningService[]) => {
-        callback(services)
-      }
-      ipcRenderer.on('services:updated', handler)
-      // Return cleanup function
-      return () => {
-        ipcRenderer.removeListener('services:updated', handler)
-      }
+    packages: {
+      listNpm: createDegradedPromise,
+      listPip: createDegradedPromise,
+      listComposer: createDegradedPromise,
+      listCargo: createDegradedPromise,
+      listGem: createDegradedPromise,
+      uninstall: createDegradedPromise,
+      update: createDegradedPromise,
+      checkNpmLatestVersion: createDegradedPromise,
+      checkPipLatestVersion: createDegradedPromise,
     },
-  },
 
-  // Environment API
-  env: {
-    getAll: () => ipcRenderer.invoke('env:get-all'),
-    getPath: () => ipcRenderer.invoke('env:get-path'),
-  },
+    services: {
+      list: createDegradedPromise,
+      kill: createDegradedPromise,
+      onUpdated: createDegradedCallback,
+    },
 
-  // Settings API
-  settings: {
-    getLanguage: () => ipcRenderer.invoke('settings:get-language'),
-    setLanguage: (lang: string) => ipcRenderer.invoke('settings:set-language', lang),
-    onLanguageChanged: (callback: (lang: string) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, lang: string) => {
-        callback(lang)
-      }
-      ipcRenderer.on('settings:language-changed', handler)
-      // Return cleanup function
-      return () => {
-        ipcRenderer.removeListener('settings:language-changed', handler)
-      }
+    env: {
+      getAll: createDegradedPromise,
+      getPath: createDegradedPromise,
     },
-  },
 
-  // AI Assistant API
-  ai: {
-    analyze: (language?: 'en-US' | 'zh-CN', useCache: boolean = false) => ipcRenderer.invoke('ai:analyze', language, useCache),
-    updateConfig: (config: AIConfig) => ipcRenderer.invoke('ai:update-config', config),
-    fetchModels: () => ipcRenderer.invoke('ai:fetch-models'),
-    testConnection: (config: AIConfig) => ipcRenderer.invoke('ai:test-connection', config),
-    onStreamToken: (callback: (token: string) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, token: string) => callback(token)
-      ipcRenderer.on('ai:stream-token', handler)
-      return () => {
-        ipcRenderer.removeListener('ai:stream-token', handler)
-      }
-    }
-  },
+    settings: {
+      getLanguage: createDegradedPromise,
+      setLanguage: createDegradedPromise,
+      onLanguageChanged: createDegradedCallback,
+    },
 
-  // Shell API
-  shell: {
-    openPath: (path: string) => ipcRenderer.invoke('shell:open-path', path),
-    openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
-    executeCommand: (command: string) => ipcRenderer.invoke('shell:execute-command', command),
-  },
+    ai: {
+      analyze: createDegradedPromise,
+      updateConfig: createDegradedPromise,
+      fetchModels: createDegradedPromise,
+      testConnection: createDegradedPromise,
+      onStreamToken: createDegradedCallback,
+    },
 
-  // Events API
-  events: {
-    onDetectionProgress: (callback: (progress: number) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, progress: number) => {
-        callback(progress)
-      }
-      ipcRenderer.on('detection:progress', handler)
-      // Return cleanup function
-      return () => {
-        ipcRenderer.removeListener('detection:progress', handler)
-      }
+    shell: {
+      openPath: createDegradedPromise,
+      openExternal: createDegradedPromise,
+      executeCommand: createDegradedPromise,
     },
-    onError: (callback: (error: string) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, error: string) => {
-        callback(error)
-      }
-      ipcRenderer.on('error', handler)
-      // Return cleanup function
-      return () => {
-        ipcRenderer.removeListener('error', handler)
-      }
-    },
-  },
 
-  // App/Update API
-  app: {
-    getVersion: () => ipcRenderer.invoke('app:version'),
-    checkForUpdates: () => ipcRenderer.invoke('update:check'),
-    downloadUpdate: () => ipcRenderer.invoke('update:download'),
-    installUpdate: () => ipcRenderer.invoke('update:install'),
-    onUpdateAvailable: (callback: (info: { version: string; releaseDate?: string; releaseNotes?: string }) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, info: { version: string; releaseDate?: string; releaseNotes?: string }) => {
-        callback(info)
-      }
-      ipcRenderer.on('update:available', handler)
-      return () => {
-        ipcRenderer.removeListener('update:available', handler)
-      }
+    events: {
+      onDetectionProgress: createDegradedCallback,
+      onError: createDegradedCallback,
     },
-    onUpdateNotAvailable: (callback: (info: { currentVersion: string }) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, info: { currentVersion: string }) => {
-        callback(info)
-      }
-      ipcRenderer.on('update:not-available', handler)
-      return () => {
-        ipcRenderer.removeListener('update:not-available', handler)
-      }
+
+    app: {
+      getVersion: createDegradedPromise,
+      checkForUpdates: createDegradedPromise,
+      downloadUpdate: createDegradedPromise,
+      installUpdate: () => {
+        console.warn('[Preload] Attempted to install update in degraded mode')
+      },
+      onUpdateAvailable: createDegradedCallback,
+      onUpdateNotAvailable: createDegradedCallback,
+      onDownloadProgress: createDegradedCallback,
+      onUpdateDownloaded: createDegradedCallback,
+      onUpdateError: createDegradedCallback,
     },
-    onDownloadProgress: (callback: (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => {
-        callback(progress)
-      }
-      ipcRenderer.on('update:download-progress', handler)
-      return () => {
-        ipcRenderer.removeListener('update:download-progress', handler)
-      }
-    },
-    onUpdateDownloaded: (callback: (info: { version: string }) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, info: { version: string }) => {
-        callback(info)
-      }
-      ipcRenderer.on('update:downloaded', handler)
-      return () => {
-        ipcRenderer.removeListener('update:downloaded', handler)
-      }
-    },
-    onUpdateError: (callback: (error: { message: string }) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, error: { message: string }) => {
-        callback(error)
-      }
-      ipcRenderer.on('update:error', handler)
-      return () => {
-        ipcRenderer.removeListener('update:error', handler)
-      }
-    },
-  },
+  }
 }
 
-// Expose the API to the renderer process
-contextBridge.exposeInMainWorld('electronAPI', electronAPI)
+/**
+ * Create the full API object with all functionality
+ */
+function createElectronAPI(): ElectronAPI {
+  return {
+    // Platform information
+    platform: process.platform,
+
+    // Preload status API
+    preloadStatus: {
+      isInitialized: () => preloadStatus.initialized,
+      isDegradedMode: () => preloadStatus.degradedMode,
+      getExposedAPIs: () => [...preloadStatus.exposedAPIs],
+      getFailedAPIs: () => [...preloadStatus.failedAPIs]
+    },
+
+    // Tools API
+    tools: {
+      detectAll: () => ipcRenderer.invoke('tools:detect-all'),
+      detectOne: (toolName: string) => ipcRenderer.invoke('tools:detect-one', toolName),
+    },
+
+    // Packages API
+    packages: {
+      listNpm: () => ipcRenderer.invoke('packages:list-npm'),
+      listPip: () => ipcRenderer.invoke('packages:list-pip'),
+      listComposer: () => ipcRenderer.invoke('packages:list-composer'),
+      listCargo: () => ipcRenderer.invoke('packages:list-cargo'),
+      listGem: () => ipcRenderer.invoke('packages:list-gem'),
+      uninstall: (name: string, manager: string) => 
+        ipcRenderer.invoke('packages:uninstall', name, manager),
+      update: (name: string, manager: string) =>
+        ipcRenderer.invoke('packages:update', name, manager),
+      checkNpmLatestVersion: (packageName: string) =>
+        ipcRenderer.invoke('packages:check-npm-latest', packageName),
+      checkPipLatestVersion: (packageName: string) =>
+        ipcRenderer.invoke('packages:check-pip-latest', packageName),
+    },
+
+    // Services API
+    services: {
+      list: () => ipcRenderer.invoke('services:list'),
+      kill: (pid: number) => ipcRenderer.invoke('services:kill', pid),
+      onUpdated: (callback: (services: RunningService[]) => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, services: RunningService[]) => {
+          callback(services)
+        }
+        ipcRenderer.on('services:updated', handler)
+        // Return cleanup function
+        return () => {
+          ipcRenderer.removeListener('services:updated', handler)
+        }
+      },
+    },
+
+    // Environment API
+    env: {
+      getAll: () => ipcRenderer.invoke('env:get-all'),
+      getPath: () => ipcRenderer.invoke('env:get-path'),
+    },
+
+    // Settings API
+    settings: {
+      getLanguage: () => ipcRenderer.invoke('settings:get-language'),
+      setLanguage: (lang: string) => ipcRenderer.invoke('settings:set-language', lang),
+      onLanguageChanged: (callback: (lang: string) => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, lang: string) => {
+          callback(lang)
+        }
+        ipcRenderer.on('settings:language-changed', handler)
+        // Return cleanup function
+        return () => {
+          ipcRenderer.removeListener('settings:language-changed', handler)
+        }
+      },
+    },
+
+    // AI Assistant API
+    ai: {
+      analyze: (language?: 'en-US' | 'zh-CN', useCache: boolean = false) => ipcRenderer.invoke('ai:analyze', language, useCache),
+      updateConfig: (config: AIConfig) => ipcRenderer.invoke('ai:update-config', config),
+      fetchModels: () => ipcRenderer.invoke('ai:fetch-models'),
+      testConnection: (config: AIConfig) => ipcRenderer.invoke('ai:test-connection', config),
+      onStreamToken: (callback: (token: string) => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, token: string) => callback(token)
+        ipcRenderer.on('ai:stream-token', handler)
+        return () => {
+          ipcRenderer.removeListener('ai:stream-token', handler)
+        }
+      }
+    },
+
+    // Shell API
+    shell: {
+      openPath: (path: string) => ipcRenderer.invoke('shell:open-path', path),
+      openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
+      executeCommand: (command: string) => ipcRenderer.invoke('shell:execute-command', command),
+    },
+
+    // Events API
+    events: {
+      onDetectionProgress: (callback: (progress: number) => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, progress: number) => {
+          callback(progress)
+        }
+        ipcRenderer.on('detection:progress', handler)
+        // Return cleanup function
+        return () => {
+          ipcRenderer.removeListener('detection:progress', handler)
+        }
+      },
+      onError: (callback: (error: string) => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, error: string) => {
+          callback(error)
+        }
+        ipcRenderer.on('error', handler)
+        // Return cleanup function
+        return () => {
+          ipcRenderer.removeListener('error', handler)
+        }
+      },
+    },
+
+    // App/Update API
+    app: {
+      getVersion: () => ipcRenderer.invoke('app:version'),
+      checkForUpdates: () => ipcRenderer.invoke('update:check'),
+      downloadUpdate: () => ipcRenderer.invoke('update:download'),
+      installUpdate: () => ipcRenderer.invoke('update:install'),
+      onUpdateAvailable: (callback: (info: { version: string; releaseDate?: string; releaseNotes?: string }) => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, info: { version: string; releaseDate?: string; releaseNotes?: string }) => {
+          callback(info)
+        }
+        ipcRenderer.on('update:available', handler)
+        return () => {
+          ipcRenderer.removeListener('update:available', handler)
+        }
+      },
+      onUpdateNotAvailable: (callback: (info: { currentVersion: string }) => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, info: { currentVersion: string }) => {
+          callback(info)
+        }
+        ipcRenderer.on('update:not-available', handler)
+        return () => {
+          ipcRenderer.removeListener('update:not-available', handler)
+        }
+      },
+      onDownloadProgress: (callback: (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => {
+          callback(progress)
+        }
+        ipcRenderer.on('update:download-progress', handler)
+        return () => {
+          ipcRenderer.removeListener('update:download-progress', handler)
+        }
+      },
+      onUpdateDownloaded: (callback: (info: { version: string }) => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, info: { version: string }) => {
+          callback(info)
+        }
+        ipcRenderer.on('update:downloaded', handler)
+        return () => {
+          ipcRenderer.removeListener('update:downloaded', handler)
+        }
+      },
+      onUpdateError: (callback: (error: { message: string }) => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, error: { message: string }) => {
+          callback(error)
+        }
+        ipcRenderer.on('update:error', handler)
+        return () => {
+          ipcRenderer.removeListener('update:error', handler)
+        }
+      },
+    },
+  }
+}
+
+/**
+ * Initialize and expose the API to the renderer process
+ * Uses try-catch to handle errors and provide degraded functionality
+ * Validates: Requirements 12.1, 12.2, 12.3, 12.4
+ */
+function initializePreload(): void {
+  const timestamp = new Date().toISOString()
+  console.log(`[Preload] Initializing at ${timestamp}`)
+  
+  try {
+    // Create the full API object
+    const electronAPI = createElectronAPI()
+    
+    // Attempt to expose the API to the renderer process
+    // Validates: Requirements 12.2 - wrap in try-catch
+    try {
+      contextBridge.exposeInMainWorld('electronAPI', electronAPI)
+      
+      // Mark as successfully initialized
+      preloadStatus.initialized = true
+      preloadStatus.exposedAPIs.push('electronAPI')
+      preloadStatus.degradedMode = false
+      
+      console.log(`[Preload] Successfully exposed electronAPI at ${new Date().toISOString()}`)
+    } catch (exposeError) {
+      // Validates: Requirements 12.1, 12.4 - log detailed error
+      const error = logPreloadError('electronAPI', exposeError)
+      preloadStatus.failedAPIs.push(error)
+      
+      // Validates: Requirements 12.3 - provide degraded functionality
+      console.warn('[Preload] Falling back to degraded mode')
+      preloadStatus.degradedMode = true
+      
+      try {
+        // Attempt to expose degraded API
+        const degradedAPI = createDegradedAPI()
+        contextBridge.exposeInMainWorld('electronAPI', degradedAPI)
+        preloadStatus.initialized = true
+        preloadStatus.exposedAPIs.push('electronAPI (degraded)')
+        console.log('[Preload] Exposed degraded electronAPI')
+      } catch (degradedError) {
+        // Even degraded mode failed - log and continue
+        logPreloadError('electronAPI (degraded)', degradedError)
+        preloadStatus.initialized = false
+        console.error('[Preload] Failed to expose even degraded API - renderer will have no API access')
+      }
+    }
+  } catch (initError) {
+    // Catch any errors during API object creation
+    const error = logPreloadError('preload-initialization', initError)
+    preloadStatus.failedAPIs.push(error)
+    preloadStatus.initialized = false
+    preloadStatus.degradedMode = true
+    
+    console.error('[Preload] Critical initialization error - attempting minimal degraded mode')
+    
+    // Last resort: try to expose a minimal status API
+    try {
+      contextBridge.exposeInMainWorld('electronAPI', createDegradedAPI())
+      preloadStatus.exposedAPIs.push('electronAPI (minimal)')
+      console.log('[Preload] Exposed minimal degraded API')
+    } catch (minimalError) {
+      logPreloadError('electronAPI (minimal)', minimalError)
+      console.error('[Preload] Complete failure - no API will be available to renderer')
+    }
+  }
+  
+  // Log final status
+  console.log(`[Preload] Initialization complete:`)
+  console.log(`  - Initialized: ${preloadStatus.initialized}`)
+  console.log(`  - Degraded Mode: ${preloadStatus.degradedMode}`)
+  console.log(`  - Exposed APIs: ${preloadStatus.exposedAPIs.join(', ') || 'none'}`)
+  console.log(`  - Failed APIs: ${preloadStatus.failedAPIs.length}`)
+}
+
+// Initialize the preload script
+initializePreload()
 
 // Type declarations for the renderer process
 declare global {
@@ -271,4 +520,4 @@ declare global {
   }
 }
 
-export type { ElectronAPI }
+export type { ElectronAPI, PreloadError, PreloadStatus }

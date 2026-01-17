@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.2.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.3.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT%20with%20Commons%20Clause-green.svg" alt="License">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg" alt="Platform">
   <img src="https://img.shields.io/badge/electron-33.3.1-9feaf9.svg" alt="Electron">
@@ -104,9 +104,9 @@ Download the latest release for your platform from the [Releases](https://github
 
 | Platform | Download |
 |----------|----------|
-| Windows | `Dev-Janitor-Setup-1.2.0.exe` |
-| macOS | `Dev-Janitor-1.2.0.dmg` |
-| Linux | `Dev-Janitor-1.2.0.AppImage` |
+| Windows | `Dev-Janitor-Setup-1.3.0.exe` |
+| macOS | `Dev-Janitor-1.3.0.dmg` |
+| Linux | `Dev-Janitor-1.3.0.AppImage` |
 
 ### Build from Source
 
@@ -223,6 +223,7 @@ Customize your experience:
 - **Styling**: Tailwind CSS
 - **Testing**: Vitest + fast-check
 - **Build Tool**: Vite + electron-builder
+- **Security**: CSP, Command Validation, Input Sanitization
 
 ### Project Structure
 
@@ -238,12 +239,18 @@ dev-janitor/
 │   │   ├── packageManager.ts
 │   │   ├── serviceMonitor.ts
 │   │   ├── environmentScanner.ts
-│   │   └── pathScanner.ts
+│   │   ├── pathScanner.ts
+│   │   ├── security/      # Security modules (NEW!)
+│   │   │   ├── commandValidator.ts
+│   │   │   ├── inputValidator.ts
+│   │   │   └── cspManager.ts
+│   │   └── utils/         # Utility modules
+│   │       └── cacheManager.ts
 │   ├── renderer/          # React frontend
 │   │   ├── components/    # React components
 │   │   ├── store/         # Zustand store
 │   │   ├── i18n/          # Internationalization
-│   │   └── ipc/           # IPC client
+│   │   └── ipc/           # IPC client with timeout
 │   └── shared/            # Shared types
 │       └── types/
 ├── build/                 # Build resources

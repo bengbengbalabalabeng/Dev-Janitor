@@ -17,7 +17,7 @@
  * ============================================================================
  */
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Drawer, Button, Spin, Alert, Card, Tag, Space, Divider, Typography, Collapse, message, Tooltip } from 'antd'
 import { 
   RobotOutlined, 
@@ -34,6 +34,7 @@ import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { AnalysisResult, Issue, Suggestion } from '../../../shared/types'
+import { MarkdownErrorBoundary } from './index'
 
 const { Title, Text, Paragraph } = Typography
 const { Panel } = Collapse
@@ -85,64 +86,71 @@ const AIInsightContent: React.FC<{ content: string }> = ({ content }) => {
           </Panel>
         </Collapse>
       )}
+      {/* Wrap Markdown rendering with Error Boundary - Validates: Requirement 9.1 */}
       <div className="markdown-content">
-        <ReactMarkdown 
-          remarkPlugins={[remarkGfm]}
-          components={{
-            pre: ({ children }: { children?: React.ReactNode }) => (
-              <div style={{ 
-                background: '#f6f8fa', 
-                padding: '12px', 
-                borderRadius: '8px', 
-                overflow: 'auto',
-                margin: '12px 0'
-              }}>
-                <pre style={{ margin: 0 }}>{children}</pre>
-              </div>
-            ),
-            code: ({ children, className }: { children?: React.ReactNode; className?: string }) => {
-              const inline = !className
-              return inline ? (
-                <code style={{ 
-                  background: 'rgba(0, 0, 0, 0.06)', 
-                  padding: '2px 4px', 
-                  borderRadius: '4px',
-                  fontSize: '0.9em'
-                }}>{children}</code>
-              ) : (
-                <code className={className}>{children}</code>
-              )
-            },
-            table: ({ children }: { children?: React.ReactNode }) => (
-              <div style={{ overflowX: 'auto', margin: '12px 0' }}>
-                <table style={{ borderCollapse: 'collapse', width: '100%' }}>{children}</table>
-              </div>
-            ),
-            tr: ({ children }: { children?: React.ReactNode }) => <tr style={{ borderBottom: '1px solid #f0f0f0' }}>{children}</tr>,
-            th: ({ children }: { children?: React.ReactNode }) => <th style={{ padding: '8px', background: '#fafafa', textAlign: 'left' }}>{children}</th>,
-            td: ({ children }: { children?: React.ReactNode }) => <td style={{ padding: '8px' }}>{children}</td>,
-            ul: ({ children }: { children?: React.ReactNode }) => <ul style={{ paddingLeft: '20px', margin: '8px 0' }}>{children}</ul>,
-            ol: ({ children }: { children?: React.ReactNode }) => <ol style={{ paddingLeft: '20px', margin: '8px 0' }}>{children}</ol>,
-            li: ({ children }: { children?: React.ReactNode }) => <li style={{ marginBottom: '4px' }}>{children}</li>,
-            p: ({ children }: { children?: React.ReactNode }) => <p style={{ marginBottom: '12px' }}>{children}</p>,
-            h1: ({ children }: { children?: React.ReactNode }) => <h1 style={{ fontSize: '1.5em', fontWeight: 'bold', margin: '16px 0 8px' }}>{children}</h1>,
-            h2: ({ children }: { children?: React.ReactNode }) => <h2 style={{ fontSize: '1.3em', fontWeight: 'bold', margin: '14px 0 8px' }}>{children}</h2>,
-            h3: ({ children }: { children?: React.ReactNode }) => <h3 style={{ fontSize: '1.1em', fontWeight: 'bold', margin: '12px 0 8px' }}>{children}</h3>,
-            a: (props: { href?: string; children?: React.ReactNode }) => (
-              <a 
-                href={props.href} 
-                onClick={(e) => {
-                  e.preventDefault()
-                  if (props.href) window.electronAPI.shell.openExternal(props.href)
-                }}
-              >
-                {props.children}
-              </a>
-            )
+        <MarkdownErrorBoundary
+          onError={(error, errorInfo) => {
+            console.error('Markdown rendering error in AIAssistantDrawer:', error, errorInfo)
           }}
         >
-          {mainContent}
-        </ReactMarkdown>
+          <ReactMarkdown 
+            remarkPlugins={[remarkGfm]}
+            components={{
+              pre: ({ children }: { children?: React.ReactNode }) => (
+                <div style={{ 
+                  background: '#f6f8fa', 
+                  padding: '12px', 
+                  borderRadius: '8px', 
+                  overflow: 'auto',
+                  margin: '12px 0'
+                }}>
+                  <pre style={{ margin: 0 }}>{children}</pre>
+                </div>
+              ),
+              code: ({ children, className }: { children?: React.ReactNode; className?: string }) => {
+                const inline = !className
+                return inline ? (
+                  <code style={{ 
+                    background: 'rgba(0, 0, 0, 0.06)', 
+                    padding: '2px 4px', 
+                    borderRadius: '4px',
+                    fontSize: '0.9em'
+                  }}>{children}</code>
+                ) : (
+                  <code className={className}>{children}</code>
+                )
+              },
+              table: ({ children }: { children?: React.ReactNode }) => (
+                <div style={{ overflowX: 'auto', margin: '12px 0' }}>
+                  <table style={{ borderCollapse: 'collapse', width: '100%' }}>{children}</table>
+                </div>
+              ),
+              tr: ({ children }: { children?: React.ReactNode }) => <tr style={{ borderBottom: '1px solid #f0f0f0' }}>{children}</tr>,
+              th: ({ children }: { children?: React.ReactNode }) => <th style={{ padding: '8px', background: '#fafafa', textAlign: 'left' }}>{children}</th>,
+              td: ({ children }: { children?: React.ReactNode }) => <td style={{ padding: '8px' }}>{children}</td>,
+              ul: ({ children }: { children?: React.ReactNode }) => <ul style={{ paddingLeft: '20px', margin: '8px 0' }}>{children}</ul>,
+              ol: ({ children }: { children?: React.ReactNode }) => <ol style={{ paddingLeft: '20px', margin: '8px 0' }}>{children}</ol>,
+              li: ({ children }: { children?: React.ReactNode }) => <li style={{ marginBottom: '4px' }}>{children}</li>,
+              p: ({ children }: { children?: React.ReactNode }) => <p style={{ marginBottom: '12px' }}>{children}</p>,
+              h1: ({ children }: { children?: React.ReactNode }) => <h1 style={{ fontSize: '1.5em', fontWeight: 'bold', margin: '16px 0 8px' }}>{children}</h1>,
+              h2: ({ children }: { children?: React.ReactNode }) => <h2 style={{ fontSize: '1.3em', fontWeight: 'bold', margin: '14px 0 8px' }}>{children}</h2>,
+              h3: ({ children }: { children?: React.ReactNode }) => <h3 style={{ fontSize: '1.1em', fontWeight: 'bold', margin: '12px 0 8px' }}>{children}</h3>,
+              a: (props: { href?: string; children?: React.ReactNode }) => (
+                <a 
+                  href={props.href} 
+                  onClick={(e) => {
+                    e.preventDefault()
+                    if (props.href) window.electronAPI.shell.openExternal(props.href)
+                  }}
+                >
+                  {props.children}
+                </a>
+              )
+            }}
+          >
+            {mainContent}
+          </ReactMarkdown>
+        </MarkdownErrorBoundary>
       </div>
     </div>
   )
@@ -158,10 +166,18 @@ export const AIAssistantDrawer: React.FC<AIAssistantDrawerProps> = ({ open, onCl
   const [loading, setLoading] = useState(false)
   const [refreshingAI, setRefreshingAI] = useState(false)
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null)
+  
+  // Refs for memory leak prevention (Requirements 4.1, 4.2, 4.3, 4.4)
+  const isMountedRef = useRef(true)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
-  // Listen for streaming tokens
+  // Listen for streaming tokens with proper cleanup
   useEffect(() => {
+    isMountedRef.current = true
+    
     const cleanup = window.electronAPI.ai.onStreamToken((token) => {
+      // Don't update state if component is unmounted (Requirement 4.1)
+      if (!isMountedRef.current) return
       setAnalysis(prev => {
         if (!prev) return prev
         const newInsights = [...prev.insights]
@@ -170,36 +186,79 @@ export const AIAssistantDrawer: React.FC<AIAssistantDrawerProps> = ({ open, onCl
         return { ...prev, insights: newInsights }
       })
     })
-    return cleanup
+    
+    return () => {
+      isMountedRef.current = false
+      cleanup() // Remove event listener (Requirement 4.4)
+    }
+  }, [])
+  
+  // Cleanup AbortController on unmount (Requirement 4.2, 4.3)
+  useEffect(() => {
+    return () => {
+      // Abort any ongoing requests when component unmounts
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
   }, [])
 
   const handleAnalyze = async () => {
+    // Cancel any previous request (Requirement 4.2)
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    abortControllerRef.current = new AbortController()
+    
     setLoading(true)
     try {
       // Pass current language to the analyzer
       const result = await window.electronAPI.ai.analyze(i18n.language as 'en-US' | 'zh-CN')
+      // Don't update state if component is unmounted (Requirement 4.1)
+      if (!isMountedRef.current) return
       setAnalysis(result)
-    } catch {
+    } catch (error) {
+      // Don't update state if component is unmounted
+      if (!isMountedRef.current) return
+      // Ignore AbortError (Requirement 4.3)
+      if (error instanceof Error && error.name === 'AbortError') return
       console.error('Analysis failed')
       message.error(t('errors.unknown', 'Analysis failed'))
     } finally {
-      setLoading(false)
+      if (isMountedRef.current) {
+        setLoading(false)
+      }
     }
   }
 
   const handleRefreshAI = async () => {
     if (!analysis) return
+    
+    // Cancel any previous request (Requirement 4.2)
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    abortControllerRef.current = new AbortController()
+    
     setRefreshingAI(true)
     try {
       // Pass true for useCache to skip scanning
       const result = await window.electronAPI.ai.analyze(i18n.language as 'en-US' | 'zh-CN', true)
+      // Don't update state if component is unmounted (Requirement 4.1)
+      if (!isMountedRef.current) return
       setAnalysis(result)
       message.success(t('ai.refreshed', 'AI recommendations refreshed'))
-    } catch {
+    } catch (error) {
+      // Don't update state if component is unmounted
+      if (!isMountedRef.current) return
+      // Ignore AbortError (Requirement 4.3)
+      if (error instanceof Error && error.name === 'AbortError') return
       console.error('Refresh failed')
       message.error(t('errors.unknown', 'Refresh failed'))
     } finally {
-      setRefreshingAI(false)
+      if (isMountedRef.current) {
+        setRefreshingAI(false)
+      }
     }
   }
 

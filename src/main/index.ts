@@ -18,8 +18,9 @@
 import { app, BrowserWindow } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import { registerAllIPCHandlers, cleanupIPCHandlers } from './ipcHandlers'
+import { registerAllIPCHandlers, cleanupIPCHandlers, areIPCHandlersRegistered } from './ipcHandlers'
 import { initAutoUpdater, shouldEnableAutoUpdater } from './autoUpdater'
+import { cspManager } from './security'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -74,6 +75,12 @@ function createWindow() {
     title: 'Dev Tools Manager',
   })
 
+  // Apply Content Security Policy (Requirement 3.1)
+  cspManager.applyToWindow(win, {
+    isDevelopment: !!VITE_DEV_SERVER_URL,
+    devServerUrl: VITE_DEV_SERVER_URL,
+  });
+
   // Test active push message to Renderer-process.
   win.webContents.on('did-finish-load', () => {
     win?.webContents.send('main-process-message', (new Date).toLocaleString())
@@ -89,12 +96,16 @@ function createWindow() {
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
+// Validates: Requirement 11.1 - IPC handlers stay active on macOS until app quits
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    cleanupIPCHandlers()
+    // On non-macOS platforms, quit the app when all windows are closed
+    // Cleanup will happen in 'before-quit' event
     app.quit()
-    win = null
   }
+  // On macOS, keep the app running (standard macOS behavior)
+  // IPC handlers remain active for when user clicks dock icon
+  win = null
 })
 
 app.on('activate', () => {
@@ -107,7 +118,10 @@ app.on('activate', () => {
 
 app.whenReady().then(() => {
   // Register all IPC handlers before creating the window
-  registerAllIPCHandlers()
+  // Validates: Requirement 11.4 - Prevent duplicate registration
+  if (!areIPCHandlersRegistered()) {
+    registerAllIPCHandlers()
+  }
   createWindow()
   
   // Initialize auto-updater in production builds
@@ -117,6 +131,7 @@ app.whenReady().then(() => {
 })
 
 // Cleanup on app quit
+// Validates: Requirements 11.2, 11.3 - Clean up IPC handlers on Cmd+Q or app quit
 app.on('before-quit', () => {
   cleanupIPCHandlers()
 })

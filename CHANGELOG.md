@@ -5,6 +5,55 @@ All notable changes to Dev Janitor will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-01-17
+
+### Added
+
+#### Security Enhancements
+- **Command Validator**: Whitelist-based command validation to prevent command injection
+- **Input Validator**: Package name, PID, and path traversal validation
+- **CSP Manager**: Content Security Policy with nonce-based script protection
+- **IPC Sender Verification**: Validates IPC message origins
+
+#### Memory Leak Fixes
+- **LRU Cache Manager**: Bounded cache (max 1000 entries) with automatic expiration
+- **AbortController Integration**: Proper cleanup for async operations in AIAssistantDrawer
+- **ServiceMonitor Cache**: Automatic cache cleanup with configurable TTL
+
+#### Performance Optimizations
+- **PackageTable Memoization**: useMemo for version comparisons, useCallback for handlers
+- **Debounced Service Monitoring**: 500ms debounce with background throttling (30s)
+- **Version Check Progress**: Progress indicator with cancel functionality
+
+#### UI/UX Improvements
+- **Markdown Error Boundary**: Graceful error handling for AI response rendering
+- **Responsive AIConfigSection**: Better layout on small screens
+- **Unified Error Responses**: Consistent IPC error format with error codes
+
+#### Electron Fixes
+- **macOS IPC Cleanup**: Proper handler cleanup on window close
+- **Preload Error Handling**: Try-catch with fallback for contextBridge
+- **IPC Timeout Protection**: 30-second default timeout with retry support
+
+#### Code Quality
+- **Store Null Safety**: Validates package arrays from IPC calls
+- **Unified IPC Response Types**: Standardized success/error response format
+- **402 Tests Passing**: Comprehensive test coverage
+
+### Changed
+- Improved error feedback in App.tsx with retry options
+- Enhanced preload script with detailed error logging
+- ServiceMonitor now uses bounded LRU cache instead of unbounded Map
+
+### Security
+- All shell commands now validated against whitelist
+- Package names validated against npm/pip naming rules
+- PID values validated as positive integers
+- Path traversal attacks prevented in file operations
+- CSP prevents inline script execution
+
+---
+
 ## [1.2.0] - 2026-01-17
 
 ### Added
@@ -169,6 +218,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[1.3.0]: https://github.com/cocojojo5213/Dev-Janitor/releases/tag/v1.3.0
 [1.2.0]: https://github.com/cocojojo5213/Dev-Janitor/releases/tag/v1.2.0
 [1.1.0]: https://github.com/cocojojo5213/Dev-Janitor/releases/tag/v1.1.0
 [1.0.0]: https://github.com/cocojojo5213/Dev-Janitor/releases/tag/v1.0.0

@@ -154,7 +154,7 @@ export const useAppStore = create<AppState>()(
       
       /**
        * Load packages from specified manager(s)
-       * Validates: Requirements 3.1, 4.1
+       * Validates: Requirements 3.1, 4.1, 16.1, 16.2, 16.3, 16.4
        */
       loadPackages: async (manager = 'all') => {
         set({ packagesLoading: true, packagesError: null })
@@ -162,17 +162,17 @@ export const useAppStore = create<AppState>()(
         try {
           if (manager === 'all' || manager === 'npm') {
             const npmPackages = await ipcClient.packages.listNpm()
-            set({ npmPackages })
+            set({ npmPackages: validatePackageArray(npmPackages, 'npm') })
           }
           
           if (manager === 'all' || manager === 'pip') {
             const pipPackages = await ipcClient.packages.listPip()
-            set({ pipPackages })
+            set({ pipPackages: validatePackageArray(pipPackages, 'pip') })
           }
           
           if (manager === 'all' || manager === 'composer') {
             const composerPackages = await ipcClient.packages.listComposer()
-            set({ composerPackages })
+            set({ composerPackages: validatePackageArray(composerPackages, 'composer') })
           }
           
           set({ packagesLoading: false })
@@ -331,9 +331,9 @@ export const useAppStore = create<AppState>()(
       setTools: (tools: ToolInfo[]) => set({ tools }),
       setToolsLoading: (loading: boolean) => set({ toolsLoading: loading }),
       setToolsError: (error: string | null) => set({ toolsError: error }),
-      setNpmPackages: (packages: PackageInfo[]) => set({ npmPackages: packages }),
-      setPipPackages: (packages: PackageInfo[]) => set({ pipPackages: packages }),
-      setComposerPackages: (packages: PackageInfo[]) => set({ composerPackages: packages }),
+      setNpmPackages: (packages: PackageInfo[]) => set({ npmPackages: validatePackageArray(packages, 'npm') }),
+      setPipPackages: (packages: PackageInfo[]) => set({ pipPackages: validatePackageArray(packages, 'pip') }),
+      setComposerPackages: (packages: PackageInfo[]) => set({ composerPackages: validatePackageArray(packages, 'composer') }),
       setPackagesLoading: (loading: boolean) => set({ packagesLoading: loading }),
       setPackagesError: (error: string | null) => set({ packagesError: error }),
       setRunningServices: (services: RunningService[]) => set({ runningServices: services }),
@@ -407,6 +407,70 @@ export const useAppStore = create<AppState>()(
 // ============================================================================
 // Helper Functions
 // ============================================================================
+
+/**
+ * Validate and sanitize package array data from IPC
+ * Validates: Requirements 16.1, 16.2, 16.3, 16.4
+ * 
+ * @param data - The data returned from IPC call
+ * @param managerName - The package manager name for logging
+ * @returns A valid PackageInfo array (empty array if invalid)
+ */
+function validatePackageArray(data: unknown, managerName: string): PackageInfo[] {
+  // Handle null or undefined - use empty array as default (Requirement 16.1)
+  if (data === null || data === undefined) {
+    console.warn(`[Store] ${managerName} packages returned null/undefined, using empty array`)
+    return []
+  }
+  
+  // Validate data type - must be an array (Requirement 16.2)
+  if (!Array.isArray(data)) {
+    console.warn(`[Store] ${managerName} packages returned unexpected type: ${typeof data}, using empty array`)
+    return []
+  }
+  
+  // Filter out invalid entries and validate each item (Requirement 16.3, 16.4)
+  const validPackages: PackageInfo[] = []
+  
+  for (let i = 0; i < data.length; i++) {
+    const item = data[i]
+    
+    // Skip null/undefined items
+    if (item === null || item === undefined) {
+      console.warn(`[Store] ${managerName} package at index ${i} is null/undefined, skipping`)
+      continue
+    }
+    
+    // Validate item is an object
+    if (typeof item !== 'object') {
+      console.warn(`[Store] ${managerName} package at index ${i} is not an object (${typeof item}), skipping`)
+      continue
+    }
+    
+    // Validate required fields exist and have correct types
+    const pkg = item as Record<string, unknown>
+    
+    if (typeof pkg.name !== 'string' || pkg.name.trim() === '') {
+      console.warn(`[Store] ${managerName} package at index ${i} has invalid name, skipping`)
+      continue
+    }
+    
+    if (typeof pkg.version !== 'string') {
+      console.warn(`[Store] ${managerName} package at index ${i} has invalid version, skipping`)
+      continue
+    }
+    
+    // Item is valid, add to result
+    validPackages.push(item as PackageInfo)
+  }
+  
+  // Log if some items were filtered out
+  if (validPackages.length !== data.length) {
+    console.warn(`[Store] ${managerName} packages: ${data.length - validPackages.length} invalid items filtered out`)
+  }
+  
+  return validPackages
+}
 
 /**
  * Detect system language and return supported language code
