@@ -16,9 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Settings UI**: Simplified settings page header style for consistency with other pages
 - **Tool count**: Updated total supported tools from 37 to 39
 - **AI CLI tools**: Updated AI CLI tools count from 4 to 5
+- **Performance**: Implemented lazy loading for all view components
+- **Performance**: Compressed hero images from 16MB to 0.6MB (96% reduction)
 
 ### Planned
-- See [ROADMAP.md](ROADMAP.md) for upcoming features
+- AI CLI 工具配置管理（读取/编辑配置文件、API Key 配置、MCP 服务器配置）
+- 项目清理功能（扫描 node_modules、__pycache__、.gradle 等）
+- 自定义工具检测规则
+- 系统托盘集成
+- 键盘快捷键
 
 ---
 
@@ -384,15 +390,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Future Releases
 
 ### Planned Features
-- [x] Package update notifications
-- [x] Tool update functionality (npm/pip)
-- [x] Dark mode support
-- [ ] Custom tool detection rules
-- [ ] Export/import configuration
-- [ ] System tray integration
-- [ ] Keyboard shortcuts
-- [ ] Plugin system for additional tools
-- [ ] Composer package update support
+- [ ] AI CLI 工具配置管理
+- [ ] 项目清理功能（node_modules、__pycache__ 等）
+- [ ] 自定义工具检测规则
+- [ ] 导出/导入配置
+- [ ] 系统托盘集成
+- [ ] 键盘快捷键
+- [ ] 插件系统
+- [ ] Composer 包更新支持
 
 ### Known Issues
 - None reported yet
