@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **SVN detection**: Added support for detecting Apache Subversion (SVN) version control tool
+- **uv detection**: Added support for detecting uv Python package installer and resolver
+
+### Changed
+- **Settings UI**: Simplified settings page header style for consistency with other pages
+- **Tool count**: Updated total supported tools from 37 to 39
+
 ### Planned
 - See [ROADMAP.md](ROADMAP.md) for upcoming features
 
