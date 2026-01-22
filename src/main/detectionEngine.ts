@@ -1010,10 +1010,17 @@ export class DetectionEngine {
     configPath: string
   }): Promise<AICLITool> {
     try {
+      // First, check if the npm package is actually installed globally
+      // This is more reliable than just checking if the command exists
+      const npmListResult = await this.executor.executeSafe(`npm list -g ${def.packageName} --depth=0`)
+      const isInstalledViaNpm = npmListResult.success && !npmListResult.stdout.includes('(empty)')
+      
       // Try to get version
       const versionResult = await this.executor.executeSafe(`${def.command} --version`)
       
-      if (!versionResult.success) {
+      // Tool is only considered installed if BOTH the command works AND npm shows it's installed
+      // This prevents false positives from cached commands after uninstallation
+      if (!versionResult.success || !isInstalledViaNpm) {
         return {
           name: def.name,
           displayName: def.displayName,
@@ -1089,7 +1096,8 @@ export class DetectionEngine {
       codex: '@openai/codex',
       claude: '@anthropic-ai/claude-code',
       gemini: '@google/gemini-cli',
-      opencode: 'opencode', // OpenCode uses install script, but npm also works
+      opencode: 'opencode',
+      iflow: 'iflow-cli',
     }
 
     const packageName = packageMap[toolName]
@@ -1119,6 +1127,7 @@ export class DetectionEngine {
       claude: '@anthropic-ai/claude-code',
       gemini: '@google/gemini-cli',
       opencode: 'opencode',
+      iflow: 'iflow-cli',
     }
 
     const packageName = packageMap[toolName]
@@ -1157,6 +1166,7 @@ export class DetectionEngine {
       claude: '@anthropic-ai/claude-code',
       gemini: '@google/gemini-cli',
       opencode: 'opencode',
+      iflow: 'iflow-cli',
     }
 
     const packageName = packageMap[toolName]
@@ -1165,8 +1175,10 @@ export class DetectionEngine {
     }
 
     try {
+      // Uninstall the package
       const result = await this.executor.executeSafe(`npm uninstall -g ${packageName}`)
       if (result.success) {
+        // Clear cache for this tool
         this.cache.invalidate(toolName)
         return { success: true }
       }

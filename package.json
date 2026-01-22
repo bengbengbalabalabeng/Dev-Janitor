@@ -1,7 +1,7 @@
 {
   "name": "dev-janitor",
   "private": true,
-  "version": "1.7.1",
+  "version": "1.7.2",
   "description": "Dev Janitor - Your Vibe Coding Toolkit for managing development tools, AI coding assistants, and dependencies",
   "author": "",
   "homepage": "https://github.com/cocojojo5213/Dev-Janitor",
@@ -72,7 +72,9 @@
     "eslint-plugin-react-refresh": "^0.4.16",
     "fast-check": "^4.5.3",
     "globals": "^15.14.0",
+    "png-to-ico": "^3.0.1",
     "postcss": "^8.4.49",
+    "sharp": "^0.34.5",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.20.0",

@@ -10,6 +10,9 @@
   "copyright": "Copyright © 2024 Dev Janitor",
   "buildVersion": "1.0.0",
   
+  // Application Icon
+  "icon": "build/icon",
+  
   // Build Configuration
   "asar": true,
   "compression": "maximum",
@@ -103,6 +106,7 @@
         "arch": ["x64"]
       }
     ],
+    "icon": "build/icon.ico",
     "artifactName": "${productName}-Windows-${version}-${arch}-Setup.${ext}",
     "publisherName": "Dev Janitor",
     "legalTrademarks": "Dev Janitor",
@@ -118,6 +122,8 @@
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
     "shortcutName": "Dev Janitor",
+    "installerIcon": "build/icon.ico",
+    "uninstallerIcon": "build/icon.ico",
     "license": "LICENSE",
     "installerLanguages": ["en_US", "zh_CN"],
     "language": "1033"

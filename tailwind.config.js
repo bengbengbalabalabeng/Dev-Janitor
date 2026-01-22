@@ -9,6 +9,9 @@ export default {
       colors: {
         primary: '#1890ff',
       },
+      fontFamily: {
+        sans: ['Noto Sans SC', 'system-ui', 'sans-serif'],
+      },
     },
   },
   plugins: [],

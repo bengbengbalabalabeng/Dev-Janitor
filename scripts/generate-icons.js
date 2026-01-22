@@ -1,52 +1,48 @@
 /**
- * Icon Generation Script for Dev Tools Manager
- * 
- * This script provides instructions for generating application icons.
- * electron-builder can automatically generate icons from a 512x512 PNG or SVG.
- * 
- * Required icon files:
- * - build/icon.png (512x512) - Base icon, electron-builder will generate others
- * - build/icon.ico (Windows) - Auto-generated from PNG
- * - build/icon.icns (macOS) - Auto-generated from PNG
- * 
- * Manual generation (if needed):
- * 
- * For Windows (.ico):
- * - Use https://icoconvert.com/ or ImageMagick
- * - Include sizes: 16x16, 32x32, 48x48, 64x64, 128x128, 256x256
- * 
- * For macOS (.icns):
- * - Use iconutil on macOS or https://cloudconvert.com/
- * - Include sizes: 16x16, 32x32, 64x64, 128x128, 256x256, 512x512, 1024x1024
- * 
- * For Linux (.png):
- * - 512x512 PNG is sufficient
- * 
- * Using ImageMagick (if installed):
- * ```bash
- * # Convert SVG to PNG
- * convert -background none -resize 512x512 build/icon.svg build/icon.png
- * 
- * # Generate ICO for Windows
- * convert build/icon.png -define icon:auto-resize=256,128,64,48,32,16 build/icon.ico
- * ```
- * 
- * Using sharp (Node.js):
- * ```javascript
- * const sharp = require('sharp');
- * sharp('build/icon.svg')
- *   .resize(512, 512)
- *   .png()
- *   .toFile('build/icon.png');
- * ```
+ * Icon Generation Script for Dev Janitor
+ * Generates PNG and ICO icons from SVG source
  */
 
-console.log('Icon Generation Instructions');
-console.log('============================');
-console.log('');
-console.log('electron-builder will automatically generate platform-specific icons');
-console.log('from the build/icon.png or build/icon.svg file.');
-console.log('');
-console.log('For best results, provide a 512x512 or 1024x1024 PNG file.');
-console.log('');
-console.log('Current icon location: build/icon.svg');
+import sharp from 'sharp';
+import pngToIco from 'png-to-ico';
+import { writeFileSync, readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const buildDir = join(__dirname, '..', 'build');
+
+async function generateIcons() {
+  const svgPath = join(buildDir, 'icon.svg');
+  const pngPath = join(buildDir, 'icon.png');
+  const icoPath = join(buildDir, 'icon.ico');
+
+  console.log('Generating icons from SVG...');
+
+  // Generate 512x512 PNG
+  await sharp(svgPath)
+    .resize(512, 512)
+    .png()
+    .toFile(pngPath);
+  console.log('✓ Generated icon.png (512x512)');
+
+  // Generate multiple sizes for ICO
+  const sizes = [256, 128, 64, 48, 32, 16];
+  const pngBuffers = await Promise.all(
+    sizes.map(size => 
+      sharp(svgPath)
+        .resize(size, size)
+        .png()
+        .toBuffer()
+    )
+  );
+
+  // Create ICO file
+  const icoBuffer = await pngToIco(pngBuffers);
+  writeFileSync(icoPath, icoBuffer);
+  console.log('✓ Generated icon.ico');
+
+  console.log('\nIcon generation complete!');
+}
+
+generateIcons().catch(console.error);
