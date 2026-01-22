@@ -5,6 +5,14 @@ All notable changes to Dev Janitor will be documented in this file.
 
 ---
 
+## [1.7.4] - Planned
+
+### Planned / 计划中
+- **macOS Tool Detection**: Add common macOS paths for better tool detection (Homebrew, nvm, Go, .NET, Java, etc.) - Fixes #28
+- **macOS 工具检测**: 添加常见 macOS 路径以改善工具检测（Homebrew、nvm、Go、.NET、Java 等）- 修复 #28
+
+---
+
 ## [1.7.3] - 2026-01-22
 
 ### Added / 新增
