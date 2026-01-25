@@ -1,18 +1,34 @@
 import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { scanAiJunk, deleteAiJunk, deleteMultipleAiJunk, AiJunkFile } from '../../ipc/commands';
+import { useAppStore } from '../../store';
 
 export function AiCleanupView() {
     const { t } = useTranslation();
-    const [junkFiles, setJunkFiles] = useState<AiJunkFile[]>([]);
+
+    // Use global store for state that should persist across page switches
+    const junkFiles = useAppStore((state) => state.aiCleanupJunkFiles);
+    const setJunkFiles = useAppStore((state) => state.setAiCleanupJunkFiles);
+    const selectedFilesArray = useAppStore((state) => state.aiCleanupSelectedFiles);
+    const setSelectedFilesArray = useAppStore((state) => state.setAiCleanupSelectedFiles);
+    const scanPath = useAppStore((state) => state.aiCleanupScanPath);
+    const setScanPath = useAppStore((state) => state.setAiCleanupScanPath);
+    const scanDepth = useAppStore((state) => state.aiCleanupScanDepth);
+    const setScanDepth = useAppStore((state) => state.setAiCleanupScanDepth);
+    const filterType = useAppStore((state) => state.aiCleanupFilterType);
+    const setFilterType = useAppStore((state) => state.setAiCleanupFilterType);
+
+    // Local state for transient UI states
     const [isScanning, setIsScanning] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
-    const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
-    const [scanPath, setScanPath] = useState('');
-    const [scanDepth, setScanDepth] = useState(5);
-    const [filterType, setFilterType] = useState<string>('all');
+
+    // Convert array to Set for easier manipulation
+    const selectedFiles = new Set(selectedFilesArray);
+    const setSelectedFiles = (newSet: Set<string>) => {
+        setSelectedFilesArray([...newSet]);
+    };
 
     const handleScan = useCallback(async () => {
         if (!scanPath.trim()) {
@@ -36,7 +52,7 @@ export function AiCleanupView() {
         } finally {
             setIsScanning(false);
         }
-    }, [scanPath, scanDepth]);
+    }, [scanPath, scanDepth, t, setJunkFiles]);
 
     const toggleFileSelection = (path: string) => {
         const newSelected = new Set(selectedFiles);

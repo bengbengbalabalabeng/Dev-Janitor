@@ -56,6 +56,16 @@ export interface AiCliTool {
 
 // ============ App Store ============
 
+export interface AiJunkFileStore {
+    id: string;
+    name: string;
+    path: string;
+    size: number;
+    size_display: string;
+    junk_type: string;
+    reason: string;
+}
+
 interface AppState {
     // Navigation
     currentView: NavView;
@@ -96,6 +106,18 @@ interface AppState {
     // AI CLI Tools
     aiCliTools: AiCliTool[];
     setAiCliTools: (tools: AiCliTool[]) => void;
+
+    // AI Cleanup View State (persisted across page switches)
+    aiCleanupJunkFiles: AiJunkFileStore[];
+    setAiCleanupJunkFiles: (files: AiJunkFileStore[]) => void;
+    aiCleanupSelectedFiles: string[];
+    setAiCleanupSelectedFiles: (files: string[]) => void;
+    aiCleanupScanPath: string;
+    setAiCleanupScanPath: (path: string) => void;
+    aiCleanupScanDepth: number;
+    setAiCleanupScanDepth: (depth: number) => void;
+    aiCleanupFilterType: string;
+    setAiCleanupFilterType: (type: string) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -133,6 +155,18 @@ export const useAppStore = create<AppState>()(
             setPorts: (ports) => set({ ports }),
             aiCliTools: [],
             setAiCliTools: (tools) => set({ aiCliTools: tools }),
+
+            // AI Cleanup View State
+            aiCleanupJunkFiles: [],
+            setAiCleanupJunkFiles: (files) => set({ aiCleanupJunkFiles: files }),
+            aiCleanupSelectedFiles: [],
+            setAiCleanupSelectedFiles: (files) => set({ aiCleanupSelectedFiles: files }),
+            aiCleanupScanPath: '',
+            setAiCleanupScanPath: (path) => set({ aiCleanupScanPath: path }),
+            aiCleanupScanDepth: 5,
+            setAiCleanupScanDepth: (depth) => set({ aiCleanupScanDepth: depth }),
+            aiCleanupFilterType: 'all',
+            setAiCleanupFilterType: (type) => set({ aiCleanupFilterType: type }),
         }),
         {
             name: 'dev-janitor-storage',

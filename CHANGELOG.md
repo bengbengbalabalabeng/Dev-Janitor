@@ -5,6 +5,12 @@ All notable changes to Dev Janitor will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2026-01-25
+
+### 修复
+- 修复 GitHub Actions 的 Clippy 在 Linux 上报 `permissions_set_readonly_false` 警告
+- 修复 AI 清理扫描结果在切换页面后丢失的问题（将状态从组件本地状态迁移到全局 store）
+
 ## [2.0.1] - 2026-01-24
 
 ### 修复

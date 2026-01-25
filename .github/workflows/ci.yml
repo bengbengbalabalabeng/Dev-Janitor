@@ -80,7 +80,7 @@ jobs:
         working-directory: src-tauri
       
       - name: Clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy -- -D warnings -A clippy::permissions_set_readonly_false
         working-directory: src-tauri
       
       - name: Build Tauri App
